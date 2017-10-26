@@ -1,6 +1,8 @@
 package io.gunter.demo;
 
 import java.lang.annotation.Retention;
+import static java.lang.System.out;
+import static java.lang.System.err;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
@@ -371,7 +373,7 @@ public class SQL<RowClass> {
 	}
 
 	public void action3(SQL.Row row) {
-		System.err.println("num=" + row.rowNum);
+		err.println("num=" + row.rowNum);
 	}
 
 	public static void main(String args[]) throws SQLException, InstantiationException, IllegalAccessException,
@@ -422,7 +424,8 @@ public class SQL<RowClass> {
 		 * forEach(UserRow2::print); }
 		 */
 
-		log.info("Tidy: Query, buffer all rows, and process...");
+//		log.info("Tidy: Query, buffer all rows, and process...");
+		err.println("Tidy: Query, buffer all rows, and process...");
 
 		class UserRow extends SQL.Row { // all public fields
 			// optional field 'query'
@@ -434,20 +437,20 @@ public class SQL<RowClass> {
 
 			// optional 'action' will be used by SQL.run(RowObj,Connection)
 			public void action() {
-				System.out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
+				out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
 			};
 
 			// alternate action for use with
 			// SQL.run(RowObj,Connection,Consumer<RowClass>)
 			public void action2() {
-				System.out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
+				out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
 			};
 		}
 
 		SQL.run(new UserRow(), getConn()); // uses UserRow.action()
 		SQL.run(new UserRow(), getConn(), UserRow::action2);
 		SQL.run(new UserRow(), getConn(),
-				(UserRow r) -> System.err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+				(UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
 
 		try (Connection conn = getConn();) {
 			UserRow row = new UserRow();
@@ -457,7 +460,7 @@ public class SQL<RowClass> {
 				//row.action();
 				ObjectMapper mapper = new ObjectMapper();
 				String jsonInString = mapper.writeValueAsString(row);
-				log.info("json = " + jsonInString);
+				out.println("json = " + jsonInString);
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
