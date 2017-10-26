@@ -18,58 +18,71 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
+import org.slf4j.event.Level;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import lombok.extern.java.Log;
+import lombok.extern.slf4j.Slf4j;
 
 /**
- * SQL<RowClass> can make database queries and return RowClass objects.
- * Saves a bit a boiler-plate JDBC code when making ad hoc queries and needing row objects.
- * An example of the parameterized type RowClass:
+ * SQL<RowClass> can make database queries and return RowClass objects. Saves a
+ * bit a boiler-plate JDBC code when making ad hoc queries and needing row
+ * objects. An example of the parameterized type RowClass:
+ * 
  * <pre>
- *		class UserRow extends SQL.Row { // all public fields
- *			@SuppressWarnings("unused")
- *			public static final String query = "select username, age from user";
- *			public Integer age;	// will receive data from the age column
- *			public String name;	// will receive data from the username column ('name' matching 'username')
- *			public void action() {
- *				System.out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
- *			};
- *		}
+ * class UserRow extends SQL.Row { // all public fields
+ * 	&#64;SuppressWarnings("unused")
+ * 	public static final String query = "select username, age from user";
+ * 	public Integer age; // will receive data from the age column
+ * 	public String name; // will receive data from the username column ('name'
+ * 						// matching 'username')
+ * 
+ * 	public void action() {
+ * 		System.out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
+ * 	};
+ * }
  *
- *		SQL.run(new UserRow(), getConn());
+ * SQL.run(new UserRow(), getConn());
  * </pre>
+ * 
  * Note:
  * <ul>
- * <li>the <pre>query</pre> field and the <pre>action</pre> method are required to use <pre>SQL.run</pre>.</li>
- * <li>the <pre>run</pre> method buffers all result rows and closes the Connection.</li>
+ * <li>the query field and the action method are required to use SQL.run</li>
+ * <li>the run method buffers all result rows and closes the Connection.</li>
  * <li>alternate query strings and action methods can be specified.</li>
- * <li>each field name must be a full or partial case-insensitive match for a result column in the query, or
- * <li>a field can have a non-matching name and be identified by an @Order annotation.
+ * <li>each field name must be a full or partial case-insensitive match for a
+ * result column in the query, or
+ * <li>a field can have a non-matching name and be identified by an @Order
+ * annotation.
  * <li>rows can be retrieved one at a time.</li>
  * </ul>
  * An example of the alternate usage pattern:
+ * 
  * <pre>
- *		class UserRow extends SQL.Row { // all public fields
- *			@Order(value=2)
- *			public Integer numLoopsAroundTheSun;
- *			@Order(value=1)
- *			public String  greeting;
- *		}
+ * class UserRow extends SQL.Row { // all public fields
+ * 	&#64;Order(value = 2)
+ * 	public Integer numLoopsAroundTheSun;
+ * 	&#64;Order(value = 1)
+ * 	public String greeting;
+ * }
  *
- *		try (Connection conn = getConn();) {
- *			UserRow row = new UserRow();
- *			SQL<UserRow> sql = new SQL<>(row, conn);
- *			while (null != (row = sql.query(
- *					"select concat('Hi ', username) as str, age from user"))) {
- *				System.out.println(row.greeting + ", you are " + row.numLoopsAroundTheSun + " years old");
- *			}
- *		}
+ * try (Connection conn = getConn();) {
+ * 	UserRow row = new UserRow();
+ * 	SQL<UserRow> sql = new SQL<>(row, conn);
+ * 	while (null != (row = sql.query("select concat('Hi ', username) as str, age from user"))) {
+ * 		System.out.println(row.greeting + ", you are " + row.numLoopsAroundTheSun + " years old");
+ * 	}
+ * }
  * </pre>
  * 
  * 
- * @author jay
+ * @author jaygunter
  *
- * @param <RowClass>
+ * @param <RowClass> See example class UserRow above.
  */
+@Slf4j
 public class SQL<RowClass> {
 
 	@Retention(RetentionPolicy.RUNTIME)
@@ -91,10 +104,9 @@ public class SQL<RowClass> {
 	private Map<Integer, Field> columnToField = new HashMap<>();;
 
 	/**
-	 * Create a SQL object.  Use SQL.query() to return objects of type <RowClass>.
-	 * - the database query contained in the 'query' field of rowClassObj.
-	 * - a specified SQL query, or
-	 * - a PreparedStatement.
+	 * Create a SQL object. Use SQL.query() to return objects of type
+	 * <RowClass>. - the database query contained in the 'query' field of
+	 * rowClassObj. - a specified SQL query, or - a PreparedStatement.
 	 */
 	public SQL(RowClass rowClassObj, Connection conn) {
 		this.rowClassObj = rowClassObj;
@@ -197,14 +209,16 @@ public class SQL<RowClass> {
 	}
 
 	/**
-	 * Invokes the action on each row.  Closes the connection.
-	 * @param action the consumer of a row
+	 * Invokes the action on each row. Closes the connection.
+	 * 
+	 * @param action
+	 *            the consumer of a row
 	 * @throws InstantiationException
 	 * @throws IllegalAccessException
 	 * @throws SQLException
 	 */
 	public void forEach(Consumer<RowClass> action) throws InstantiationException, IllegalAccessException, SQLException {
-//		Arrays.stream(allResults()).forEach(action);
+		// Arrays.stream(allResults()).forEach(action);
 		Stream.of(allResults()).forEach(action);
 		close();
 	}
@@ -355,7 +369,7 @@ public class SQL<RowClass> {
 	public static Connection getConn() throws SQLException {
 		return DriverManager.getConnection("jdbc:mysql://localhost:3306/mydb", "root", "");
 	}
-	
+
 	public void action3(SQL.Row row) {
 		System.err.println("num=" + row.rowNum);
 	}
@@ -408,7 +422,7 @@ public class SQL<RowClass> {
 		 * forEach(UserRow2::print); }
 		 */
 
-		System.out.println("Tidy:  Query, buffer all rows, and process...");
+		log.info("Tidy: Query, buffer all rows, and process...");
 
 		class UserRow extends SQL.Row { // all public fields
 			// optional field 'query'
@@ -430,17 +444,23 @@ public class SQL<RowClass> {
 			};
 		}
 
-		SQL.run(new UserRow(), getConn());
+		SQL.run(new UserRow(), getConn()); // uses UserRow.action()
 		SQL.run(new UserRow(), getConn(), UserRow::action2);
-		SQL.run(new UserRow(), getConn(), (UserRow r) -> System.err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+		SQL.run(new UserRow(), getConn(),
+				(UserRow r) -> System.err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
 
 		try (Connection conn = getConn();) {
 			UserRow row = new UserRow();
 			SQL<UserRow> sql = new SQL<>(row, conn);
 			while (null != (row = sql.query(
 					"select email, concat('aaa ', username) as name, sum(age) as age from user group by name, age, email"))) {
-				row.action();
+				//row.action();
+				ObjectMapper mapper = new ObjectMapper();
+				String jsonInString = mapper.writeValueAsString(row);
+				log.info("json = " + jsonInString);
 			}
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 
 		// TODO add ordinary (non-reflection) JDBC version of query/retrieve for
