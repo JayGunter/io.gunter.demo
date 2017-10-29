@@ -1,8 +1,9 @@
 package io.gunter.demo;
 
-import java.lang.annotation.Retention;
-import static java.lang.System.out;
 import static java.lang.System.err;
+import static java.lang.System.out;
+
+import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
@@ -13,6 +14,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -20,12 +22,9 @@ import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-import org.slf4j.event.Level;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import lombok.extern.java.Log;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -82,7 +81,8 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * @author jaygunter
  *
- * @param <RowClass> See example class UserRow above.
+ * @param <RowClass>
+ *            See example class UserRow above.
  */
 @Slf4j
 public class SQL<RowClass> {
@@ -424,7 +424,7 @@ public class SQL<RowClass> {
 		 * forEach(UserRow2::print); }
 		 */
 
-//		log.info("Tidy: Query, buffer all rows, and process...");
+		// log.info("Tidy: Query, buffer all rows, and process...");
 		err.println("Tidy: Query, buffer all rows, and process...");
 
 		class UserRow extends SQL.Row { // all public fields
@@ -449,25 +449,84 @@ public class SQL<RowClass> {
 
 		SQL.run(new UserRow(), getConn()); // uses UserRow.action()
 		SQL.run(new UserRow(), getConn(), UserRow::action2);
-		SQL.run(new UserRow(), getConn(),
-				(UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+		SQL.run(new UserRow(), getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
 
-		try (Connection conn = getConn();) {
-			UserRow row = new UserRow();
-			SQL<UserRow> sql = new SQL<>(row, conn);
-			while (null != (row = sql.query(
-					"select email, concat('aaa ', username) as name, sum(age) as age from user group by name, age, email"))) {
-				//row.action();
-				ObjectMapper mapper = new ObjectMapper();
-				String jsonInString = mapper.writeValueAsString(row);
-				out.println("json = " + jsonInString);
-			}
-		} catch (Exception e) {
-			e.printStackTrace();
+		int millisecs = 0;
+		int maxRuns = 50;
+		
+		runReflecting(maxRuns);
+		runStandard(maxRuns);
+
+		log.info("END RUN");
+	}
+	
+	public static void runReflecting(int maxRuns) {
+		class UserRow extends SQL.Row { // all public fields
+			// optional field 'query'
+			@SuppressWarnings("unused")
+			public static final String query = "select username, email, age from user";
+			public Integer age;
+			public String name;
+			//public String mail;
+
+			// optional 'action' will be used by SQL.run(RowObj,Connection)
+			public void action() {
+				//out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
+				out.println("row#" + rowNum + ": name=" + name + ", age: " + age );
+			};
+
+			// alternate action for use with
+			// SQL.run(RowObj,Connection,Consumer<RowClass>)
+			public void action2() {
+				//out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
+				out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age );
+			};
 		}
+		int millisecs = 0;
+		for (int runs = 1; runs <= maxRuns; runs++) {
+			Date start = new Date();
+			try (Connection conn = getConn();) {
+				UserRow row = new UserRow();
+				SQL<UserRow> sql = new SQL<>(row, conn);
+				while (null != (row = sql.query(
+						//"select email, concat('aaa ', username) as name, sum(age) as age from user group by name, age, email"))) {
+						"select username, age as age from user"))) {
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			Date end = new Date();
+			long elapsed = (end.getTime() - start.getTime());
+			//log.info("el=" + elapsed);
+			millisecs += elapsed;
+		}
+		log.info("Ref avg millis = " + (1000 * millisecs / maxRuns));
+	}
 
-		// TODO add ordinary (non-reflection) JDBC version of query/retrieve for
-		// timing comparision.
+	public static void runStandard(int maxRuns) {
+		int millisecs = 0;
+		for (int runs = 1; runs <= maxRuns; runs++) {
+			Date start = new Date();
+			try (Connection conn = getConn();) {
+				PreparedStatement preparedStatement = conn.prepareStatement(
+					//"select email, concat('aaa ', username) as name, sum(age) as age from user group by name, age, email");
+					"select username, age as age from user");
+				ResultSet rs = preparedStatement.executeQuery();
+				while (rs.next()) {
+					//String userid = rs.getString("name");
+					//String username = rs.getString("age");
+					String username = rs.getString(1);
+					Integer age = rs.getInt(2);
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			Date end = new Date();
+			long elapsed = (end.getTime() - start.getTime());
+			//log.info("el=" + elapsed);
+			millisecs += elapsed;
+		}
+		log.info("Std avg millis = " + (1000 * millisecs / maxRuns));
 	}
 
 }
