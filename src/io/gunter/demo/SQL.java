@@ -14,23 +14,25 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.StringTokenizer;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * SQL<RowClass> can make database queries and return RowClass objects. Saves a
  * bit a boiler-plate JDBC code when making ad hoc queries and needing row
- * objects. An example of the parameterized type RowClass:
+ * objects. Performance penalty: using reflection to load a row object adds
+ * roughly 15% to execution time. An example of the parameterized type RowClass:
  * 
  * <pre>
  * class UserRow extends SQL.Row { // all public fields
@@ -84,16 +86,12 @@ import lombok.extern.slf4j.Slf4j;
  * @param <RowClass>
  *            See example class UserRow above.
  */
-@Slf4j
-public class SQL<RowClass> {
+@Slf4j(topic = "SQL")
+public class SQL<RowClass extends Row> {
 
 	@Retention(RetentionPolicy.RUNTIME)
 	public @interface Order {
 		int value();
-	}
-
-	public static class Row {
-		public Integer rowNum;
 	}
 
 	private RowClass rowClassObj = null;
@@ -103,7 +101,8 @@ public class SQL<RowClass> {
 	private Field rowNumField = null;
 	private int rowCount = 0;
 	private String[] resultColumns = null;
-	private Map<Integer, Field> columnToField = new HashMap<>();;
+	private Map<Integer, Field> columnToField = new HashMap<>();
+	private String tableName = null;
 
 	/**
 	 * Create a SQL object. Use SQL.query() to return objects of type
@@ -115,20 +114,20 @@ public class SQL<RowClass> {
 		this.conn = conn;
 	}
 
-	public static <RowClass> void run(RowClass rowClassObj, Connection conn, Consumer<RowClass> action)
+	public static <RowClass extends Row> void run(RowClass rowClassObj, Connection conn, Consumer<RowClass> action)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		@SuppressWarnings("unchecked")
 		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
-		new SQL<RowClass>(row, getConn()).forEach(action);
+		new SQL<RowClass>(row, conn).forEach(action);
 	}
 
-	public static <RowClass> void run(RowClass rowClassObj, Connection conn) throws InstantiationException,
+	public static <RowClass extends Row> void run(RowClass rowClassObj, Connection conn) throws InstantiationException,
 			IllegalAccessException, SQLException, NoSuchMethodException, SecurityException {
 		@SuppressWarnings("unchecked")
 		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
 		Method method = rowClassObj.getClass().getMethod("action");
 		// Consumer<RowClass> action = method;
-		new SQL<RowClass>(row, getConn()).forEach((RowClass rc) -> {
+		new SQL<RowClass>(row, conn).forEach((RowClass rc) -> {
 			try {
 				method.invoke(rc);
 			} catch (IllegalAccessException e) {
@@ -236,6 +235,11 @@ public class SQL<RowClass> {
 		if (-1 == fromIndex) {
 			throw new IllegalArgumentException("No FROM found in query: " + sql);
 		}
+		StringTokenizer st = new StringTokenizer(lowerCaseSql.substring(fromIndex + 6).trim());
+		tableName = st.nextToken();
+		if (!Character.isLetter(tableName.charAt(0))) {
+			tableName = null;
+		}
 		String csvResultColumns = lowerCaseSql.substring(selectIndex + 7, fromIndex);
 		// strip parens and text inside them
 		while (true) {
@@ -305,6 +309,40 @@ public class SQL<RowClass> {
 	}
 
 	/*
+	 * Use this query method for SQL query specified in RowClass
+	 */
+	public RowClass query() throws SQLException, InstantiationException, IllegalAccessException {
+		return doQuery(null, null);
+	}
+
+	private String rowQuerySQL = null;
+
+	private String getRowQuerySQL() {
+		if (rowQuerySQL != null) {
+			return rowQuerySQL;
+		}
+
+		Field queryField = null;
+		try {
+			queryField = rowClassObj.getClass().getField("query");
+			rowQuerySQL = (String) queryField.get(null);
+		} catch (NoSuchFieldException | IllegalAccessException e) {
+			throw new IllegalArgumentException(
+					"SQL.allResults() requires Row class have a public static final String query field.");
+		}
+		/*
+		 * TODO remove: could not get to UserRow.getQuery. RowClass row =
+		 * (RowClass) rowClassObj.getClass().newInstance(); sql =
+		 * row.getQuery();
+		 */
+		if (rowQuerySQL == null) {
+			throw new IllegalArgumentException(
+					"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
+		}
+		return rowQuerySQL;
+	}
+
+	/*
 	 * The first call performs the query (creating the PreparedStatement if none
 	 * was passed). Every call returns a result row.
 	 */
@@ -312,6 +350,8 @@ public class SQL<RowClass> {
 			throws SQLException, InstantiationException, IllegalAccessException, SecurityException {
 		if (!hitDb) {
 			if (sql == null) {
+				sql = getRowQuerySQL();
+				/*
 				Field queryField = null;
 				try {
 					queryField = rowClassObj.getClass().getField("query");
@@ -320,6 +360,12 @@ public class SQL<RowClass> {
 					throw new IllegalArgumentException(
 							"SQL.allResults() requires Row class have a public static final String query field.");
 				}
+				*/
+				/*
+				 * TODO remove: could not get to UserRow.getQuery. RowClass row
+				 * = (RowClass) rowClassObj.getClass().newInstance(); sql =
+				 * row.getQuery();
+				 */
 				if (sql == null) {
 					throw new IllegalArgumentException(
 							"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
@@ -359,6 +405,53 @@ public class SQL<RowClass> {
 		return row;
 	}
 
+	public void insert() throws IllegalArgumentException, IllegalAccessException {
+		insert(this.rowClassObj);
+	}
+
+	public void insert(RowClass row) throws IllegalArgumentException, IllegalAccessException {
+		List<RowClass> rows = new ArrayList<RowClass>(1);
+		rows.add(row);
+		insert(rows);
+	}
+
+	public void insert(List<RowClass> rows) throws IllegalArgumentException, IllegalAccessException {
+		if (tableName == null) {
+//			getQueryColumnNames(rows.get(0).getQuery());
+			getQueryColumnNames(getRowQuerySQL());
+			filterFields();
+		}
+		StringBuilder query = new StringBuilder("insert into ");
+		query.append(tableName);
+		query.append(" (");
+		String valComma = "";
+		for (String columnName : resultColumns) {
+			query.append(valComma);
+			valComma = ",";
+			query.append(columnName);
+		}
+		query.append(") values ");
+		String rowComma = "";
+		for (RowClass row : rows) {
+			query.append(rowComma);
+			rowComma = ",";
+			query.append("(");
+			valComma = "";
+			for (Integer colIndex : columnToField.keySet()) {
+				Field field = columnToField.get(colIndex);
+				query.append(valComma);
+				valComma = ",";
+				String colValue = (String) field.get(row);
+				if (field.getType() == String.class && colValue != null) {
+					colValue = "'" + colValue + "'";
+				}
+				query.append(colValue);
+			}
+			query.append(")");
+		}
+		log.info("Insert query = " + query);
+	}
+
 	public void close() throws SQLException {
 		// if (ps != null) {
 		// ps.close();
@@ -366,167 +459,6 @@ public class SQL<RowClass> {
 		if (conn != null) {
 			conn.close();
 		}
-	}
-
-	public static Connection getConn() throws SQLException {
-		return DriverManager.getConnection("jdbc:mysql://localhost:3306/mydb", "root", "");
-	}
-
-	public void action3(SQL.Row row) {
-		err.println("num=" + row.rowNum);
-	}
-
-	public static void main(String args[]) throws SQLException, InstantiationException, IllegalAccessException,
-			JsonProcessingException, ClassNotFoundException, NoSuchMethodException, SecurityException {
-
-		Class.forName("com.mysql.jdbc.Driver");
-
-		/*
-		 * System.out.
-		 * println("Use explicit ordering to map obj fields to query result columns.\nProcess one row at a time..."
-		 * );
-		 * 
-		 * class UserRow extends SQL.Row { // all public fields
-		 * 
-		 * @Order(value = 2) public Integer num;
-		 * 
-		 * @Order(value = 1) public String str; }
-		 * 
-		 * try (Connection conn = getConn();) { UserRow row = new UserRow();
-		 * SQL<UserRow> sql = new SQL<>(row, conn); while (null != (row =
-		 * sql.query("select username, age from user;"))) { // Row objects make
-		 * it easy to pass data to other methods, // and to generate JSON.
-		 * System.out.println("row#" + row.rowNum + ": str=" + row.str +
-		 * ", num: " + row.num); try { // TODO // ObjectMapper mapper = new
-		 * ObjectMapper(); // String jsonInString =
-		 * mapper.writeValueAsString(row); } catch (Exception e) {
-		 * e.printStackTrace(); } } }
-		 * 
-		 * System.out.
-		 * println("Use naming convention to map obj fields to query result columns.\nProcess one row at a time..."
-		 * );
-		 * 
-		 * class UserRow2 extends SQL.Row { // all public fields public Integer
-		 * age; public String name;
-		 * 
-		 * public void print() { System.out.println("row#" + rowNum + ": name="
-		 * + name + ", age: " + age); }; }
-		 * 
-		 * try (Connection conn = getConn();) { UserRow2 row = new UserRow2();
-		 * SQL<UserRow2> sql = new SQL<>(row, conn); while (null != (row =
-		 * sql.query("select username, age from user;"))) { row.print(); } }
-		 * 
-		 * System.out.println("Query, buffer all rows, and process...");
-		 * 
-		 * try (Connection conn = getConn();) { SQL<UserRow2> sql = new
-		 * SQL<>(new UserRow2(), conn);
-		 * Arrays.stream(sql.allResults("select username, age from user;")).
-		 * forEach(UserRow2::print); }
-		 */
-
-		// log.info("Tidy: Query, buffer all rows, and process...");
-		err.println("Tidy: Query, buffer all rows, and process...");
-
-		class UserRow extends SQL.Row { // all public fields
-			// optional field 'query'
-			@SuppressWarnings("unused")
-			public static final String query = "select username, email, age from user";
-			public Integer age;
-			public String name;
-			public String mail;
-
-			// optional 'action' will be used by SQL.run(RowObj,Connection)
-			public void action() {
-				out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
-			};
-
-			// alternate action for use with
-			// SQL.run(RowObj,Connection,Consumer<RowClass>)
-			public void action2() {
-				out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
-			};
-		}
-
-		SQL.run(new UserRow(), getConn()); // uses UserRow.action()
-		SQL.run(new UserRow(), getConn(), UserRow::action2);
-		SQL.run(new UserRow(), getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
-
-		int millisecs = 0;
-		int maxRuns = 50;
-		
-		runReflecting(maxRuns);
-		runStandard(maxRuns);
-
-		log.info("END RUN");
-	}
-	
-	public static void runReflecting(int maxRuns) {
-		class UserRow extends SQL.Row { // all public fields
-			// optional field 'query'
-			@SuppressWarnings("unused")
-			public static final String query = "select username, email, age from user";
-			public Integer age;
-			public String name;
-			//public String mail;
-
-			// optional 'action' will be used by SQL.run(RowObj,Connection)
-			public void action() {
-				//out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
-				out.println("row#" + rowNum + ": name=" + name + ", age: " + age );
-			};
-
-			// alternate action for use with
-			// SQL.run(RowObj,Connection,Consumer<RowClass>)
-			public void action2() {
-				//out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
-				out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age );
-			};
-		}
-		int millisecs = 0;
-		for (int runs = 1; runs <= maxRuns; runs++) {
-			Date start = new Date();
-			try (Connection conn = getConn();) {
-				UserRow row = new UserRow();
-				SQL<UserRow> sql = new SQL<>(row, conn);
-				while (null != (row = sql.query(
-						//"select email, concat('aaa ', username) as name, sum(age) as age from user group by name, age, email"))) {
-						"select username, age as age from user"))) {
-				}
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-			Date end = new Date();
-			long elapsed = (end.getTime() - start.getTime());
-			//log.info("el=" + elapsed);
-			millisecs += elapsed;
-		}
-		log.info("Ref avg millis = " + (1000 * millisecs / maxRuns));
-	}
-
-	public static void runStandard(int maxRuns) {
-		int millisecs = 0;
-		for (int runs = 1; runs <= maxRuns; runs++) {
-			Date start = new Date();
-			try (Connection conn = getConn();) {
-				PreparedStatement preparedStatement = conn.prepareStatement(
-					//"select email, concat('aaa ', username) as name, sum(age) as age from user group by name, age, email");
-					"select username, age as age from user");
-				ResultSet rs = preparedStatement.executeQuery();
-				while (rs.next()) {
-					//String userid = rs.getString("name");
-					//String username = rs.getString("age");
-					String username = rs.getString(1);
-					Integer age = rs.getInt(2);
-				}
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-			Date end = new Date();
-			long elapsed = (end.getTime() - start.getTime());
-			//log.info("el=" + elapsed);
-			millisecs += elapsed;
-		}
-		log.info("Std avg millis = " + (1000 * millisecs / maxRuns));
 	}
 
 }
