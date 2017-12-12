@@ -104,15 +104,18 @@ public class Test {
 		}
 		*/
 
-		SQL.run(new UserRow(), getConn()); // uses UserRow.action()
-		SQL.run(new UserRow(), getConn(), UserRow::action2);
-		SQL.run(new UserRow(), getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+		/*
+		SQL.run(UserRow.class, getConn()); // uses UserRow.action()
+		SQL.run(UserRow.class, getConn(), UserRow::action2);
+		SQL.run(UserRow.class, getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+		*/
 		
 		/*
 		UserRow.where("name", "new1").stream(getConn());
 		UserRow.query(getConn()).where("name", "new1").stream();
-		SQL.query(new UserRow(), getConn()).where("name", "new1").stream();
 		*/
+		//SQL.query(UserRow.class, getConn()).where("name", "new1").stream();
+		//SQL.query(UserRow.class, getConn()).where("name=?", "new1").stream();
 
 		int millisecs = 0;
 		int maxRuns = 0;
@@ -121,6 +124,7 @@ public class Test {
 			runReflecting(maxRuns);
 			runStandard(maxRuns);
 		}
+			runReflecting(2);
 
 		try (Connection conn = getConn();) {
 			UserRow row = new UserRow();
@@ -137,32 +141,8 @@ public class Test {
 	}
 
 	public static void runReflecting(int maxRuns) {
-		/*
-		class UserRow extends Row { // all public fields
-			// optional field 'query'
-			@SuppressWarnings("unused")
-			public String getQuery() { return "select username, email, age from user"; }
-			public Integer age;
-			public String name;
-			// public String mail;
-
-			// optional 'action' will be used by SQL.run(RowObj,Connection)
-			public void action() {
-				// out.println("row#" + rowNum + ": name=" + name + ", age: " +
-				// age + ", email: " + mail);
-				out.println("row#" + rowNum + ": name=" + name + ", age: " + age);
-			};
-
-			// alternate action for use with
-			// SQL.run(RowObj,Connection,Consumer<RowClass>)
-			public void action2() {
-				// out.println("ACTION2: row#" + rowNum + ": name=" + name + ",
-				// age: " + age + ", email: " + mail);
-				out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age);
-			};
-		}
-		*/
 		int millisecs = 0;
+		int numRows = 0;
 		for (int runs = 1; runs <= maxRuns; runs++) {
 			Date start = new Date();
 			try (Connection conn = getConn();) {
@@ -172,7 +152,8 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email"))) {
-						"select username, age as age from user"))) {
+						"select email, username, age as age from user"))) {
+					numRows++;
 				}
 			} catch (Exception e) {
 				e.printStackTrace();
@@ -182,6 +163,7 @@ public class Test {
 			// log.info("el=" + elapsed);
 			millisecs += elapsed;
 		}
+		log.info("numRows = " + numRows);
 		log.info("Ref avg millis = " + (1000 * millisecs / maxRuns));
 	}
 

@@ -96,6 +96,7 @@ public class SQL<RowClass extends Row> {
 
 	private RowClass rowClassObj = null;
 	private Connection conn = null;
+	private String rowQuerySQL = null;
 	private ResultSet rs = null;
 	private boolean hitDb = false;
 	private Field rowNumField = null;
@@ -114,18 +115,48 @@ public class SQL<RowClass extends Row> {
 		this.conn = conn;
 	}
 
-	public static <RowClass extends Row> void run(RowClass rowClassObj, Connection conn, Consumer<RowClass> action)
+	public static <RowClass extends Row> SQL<RowClass> query(Class<RowClass> clazz, Connection conn)
 			throws InstantiationException, IllegalAccessException, SQLException {
-		@SuppressWarnings("unchecked")
-		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
-		new SQL<RowClass>(row, conn).forEach(action);
+		RowClass row = (RowClass) clazz.newInstance();
+		return new SQL<RowClass>(row, conn);
 	}
 
-	public static <RowClass extends Row> void run(RowClass rowClassObj, Connection conn) throws InstantiationException,
+	@SuppressWarnings("unchecked")
+	public <RowClass extends Row> SQL<RowClass> where(Object... keysAndValues) {
+		String sql = getRowQuerySQL();
+		StringBuilder query = new StringBuilder(sql);
+		query.append(" WHERE ");
+		boolean isKey = true;
+		String and = "";
+		for (Object obj : keysAndValues) {
+			if (isKey) {
+				if (obj == null) {
+					throw new IllegalArgumentException("null column name");
+				}
+				String s = obj.toString();
+				query.append(and);
+				query.append(s);
+			} else {
+				if (obj == null) {
+					query.append(" IS NULL ");
+				}
+				String s = obj.toString();
+				if (obj instanceof String) {
+					s = "'" + s + "'";
+				}
+				query.append(s);
+			}
+			isKey = !isKey;
+			and = " AND ";
+		}
+		return (SQL<RowClass>) this;
+	}
+
+	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn) throws InstantiationException,
 			IllegalAccessException, SQLException, NoSuchMethodException, SecurityException {
-		@SuppressWarnings("unchecked")
-		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
-		Method method = rowClassObj.getClass().getMethod("action");
+		RowClass row = (RowClass) clazz.newInstance();
+		Method method = row.getClass().getMethod("action");
+		//run(clazz, conn, method);
 		// Consumer<RowClass> action = method;
 		new SQL<RowClass>(row, conn).forEach((RowClass rc) -> {
 			try {
@@ -140,8 +171,20 @@ public class SQL<RowClass extends Row> {
 		});
 	}
 
+	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action) 
+	//public static <RowClass extends Row> void run(RowClass rowClassObj, Connection conn, Consumer<RowClass> action)
+			throws InstantiationException, IllegalAccessException, SQLException {
+		query(clazz, conn).forEach(action);
+		/*
+		@SuppressWarnings("unchecked")
+		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		new SQL<RowClass>(row, conn).forEach(action);
+		*/
+	}
+
 	void filterFields() throws IllegalArgumentException, IllegalAccessException {
 		for (Field field : rowClassObj.getClass().getFields()) {
+			log.debug("field name = " + field.getName());
 			if (field.getName().equals("rowNum")) {
 				this.rowNumField = field;
 			} else if (field.getName().equals("query")) {
@@ -156,7 +199,8 @@ public class SQL<RowClass extends Row> {
 					int j = 1;
 					for (String resultColumn : resultColumns) {
 						int index = resultColumn.indexOf(field.getName());
-						if (index != -1) {
+						log.debug("resultColumn = " + resultColumn + ", colIndex = " + colIndex + ", index = " + index);
+						if (index != -1 && colIndex == -1) {
 							colIndex = j;
 						} else if (colIndex != -1) {
 							// throw new IllegalArgumentException("Multiple
@@ -315,33 +359,6 @@ public class SQL<RowClass extends Row> {
 		return doQuery(null, null);
 	}
 
-	private String rowQuerySQL = null;
-
-	private String getRowQuerySQL() {
-		if (rowQuerySQL != null) {
-			return rowQuerySQL;
-		}
-
-		Field queryField = null;
-		try {
-			queryField = rowClassObj.getClass().getField("query");
-			rowQuerySQL = (String) queryField.get(null);
-		} catch (NoSuchFieldException | IllegalAccessException e) {
-			throw new IllegalArgumentException(
-					"SQL.allResults() requires Row class have a public static final String query field.");
-		}
-		/*
-		 * TODO remove: could not get to UserRow.getQuery. RowClass row =
-		 * (RowClass) rowClassObj.getClass().newInstance(); sql =
-		 * row.getQuery();
-		 */
-		if (rowQuerySQL == null) {
-			throw new IllegalArgumentException(
-					"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
-		}
-		return rowQuerySQL;
-	}
-
 	/*
 	 * The first call performs the query (creating the PreparedStatement if none
 	 * was passed). Every call returns a result row.
@@ -450,6 +467,33 @@ public class SQL<RowClass extends Row> {
 			query.append(")");
 		}
 		log.info("Insert query = " + query);
+		// TODO run the insert!
+	}
+
+
+	private String getRowQuerySQL() {
+		if (rowQuerySQL != null) {
+			return rowQuerySQL;
+		}
+
+		Field queryField = null;
+		try {
+			queryField = rowClassObj.getClass().getField("query");
+			rowQuerySQL = (String) queryField.get(null);
+		} catch (NoSuchFieldException | IllegalAccessException e) {
+			throw new IllegalArgumentException(
+					"SQL.allResults() requires Row class have a public static final String query field.");
+		}
+		/*
+		 * TODO remove: could not get to UserRow.getQuery. RowClass row =
+		 * (RowClass) rowClassObj.getClass().newInstance(); sql =
+		 * row.getQuery();
+		 */
+		if (rowQuerySQL == null) {
+			throw new IllegalArgumentException(
+					"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
+		}
+		return rowQuerySQL;
 	}
 
 	public void close() throws SQLException {
