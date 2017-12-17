@@ -78,31 +78,7 @@ public class Test {
 		 */
 
 		// log.info("Tidy: Query, buffer all rows, and process...");
-		err.println("Tidy: Query, buffer all rows, and process...");
 
-		/*
-		class UserRow extends Row { // all public fields
-			//@Override
-			public static String getQuery() {
-				return "select user_name, email, age from user";
-			}
-
-			public Integer age;
-			public String name;
-			public String mail;
-
-			// optional 'action' will be used by SQL.run(RowObj,Connection)
-			public void action() {
-				out.println("row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
-			};
-
-			// alternate action for use with
-			// SQL.run(RowObj,Connection,Consumer<RowClass>)
-			public void action2() {
-				out.println("ACTION2: row#" + rowNum + ": name=" + name + ", age: " + age + ", email: " + mail);
-			};
-		}
-		*/
 
 		if (false) {
 			SQL.run(UserRow.class, getConn()); // uses UserRow.action()
@@ -138,6 +114,7 @@ public class Test {
 
 		UserRow row = new UserRow();
 		row.userName = "newB";
+		row.mod();
 		row.password = "newB";
 		row.save(getConn());
 
@@ -177,7 +154,7 @@ public class Test {
 			}
 			Date end = new Date();
 			long elapsed = (end.getTime() - start.getTime());
-			log.info("el=" + elapsed);
+			//log.info("el=" + elapsed);
 			millisecs += elapsed;
 		}
 		log.info("numRows = " + numRows);

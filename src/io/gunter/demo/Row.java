@@ -7,7 +7,16 @@ import java.util.stream.Stream;
 public abstract class Row {
 	public Integer rowNum;
 	private boolean dirty;
-	
+
+	/**
+	 * Usage:  userRow.mod(); userRow.age++; userRow.save();
+	 * @return
+	 */
+	public Row mod() {
+		dirty = true;
+		return this;
+	}
+
 	/*
 	public static Row where(Object... keysAndValues) {
 		return new SQL<this.class>();
@@ -17,11 +26,6 @@ public abstract class Row {
 	// TODO could this work to return a stream of e.g. UserRow objects?
 	public Stream<Row> stream(Connection conn) {
 		return null;
-	}
-	
-	public Row mod() {
-		dirty = true;
-		return this;
 	}
 
 	/* TODO bag this in favor of insert/update */

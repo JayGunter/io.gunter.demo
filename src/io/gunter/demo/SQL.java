@@ -91,6 +91,10 @@ public class SQL<RowClass extends Row> {
 		String query();
 	}
 
+	@Retention(RetentionPolicy.RUNTIME)
+	public @interface PK {
+	}
+
 	private Class<? extends Row> rowClass = null;
 	private RowClass rowClassObj = null;
 	private Connection conn = null;
@@ -189,15 +193,8 @@ public class SQL<RowClass extends Row> {
 	}
 
 	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action)
-			// public static <RowClass extends Row> void run(RowClass
-			// rowClassObj, Connection conn, Consumer<RowClass> action)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		query(clazz, conn).forEach(action);
-		/*
-		 * @SuppressWarnings("unchecked") RowClass row = (RowClass)
-		 * rowClassObj.getClass().newInstance(); new SQL<RowClass>(row,
-		 * conn).forEach(action);
-		 */
 	}
 
 	/**
@@ -242,7 +239,7 @@ public class SQL<RowClass extends Row> {
 					columnToField.put(colIndex, field);
 				}
 				if (colIndex != -1) {
-					if (field.getName().equals("id")) {
+					if (field.getName().equals("id") || field.isAnnotationPresent(PK.class)) {
 						primaryKeyField = field;
 					}
 				}
@@ -523,23 +520,34 @@ public class SQL<RowClass extends Row> {
 			return rowQuerySQL;
 		}
 
-		/* TODO remove when @Select is working
-		Field queryField = null;
-		try {
-			queryField = rowClassObj.getClass().getField("query");
-			rowQuerySQL = (String) queryField.get(null);
-		} catch (NoSuchFieldException | IllegalAccessException e) {
-			throw new IllegalArgumentException(
-					"SQL.allResults() requires Row class have a public static final String query field.");
-		}
-		*/
+		tableName = camelToUnderscore(rowClass.getSimpleName());
 
 		Select select = rowClassObj.getClass().getAnnotation(Select.class);
+		/*
 		if (select == null) {
 			throw new IllegalArgumentException(
 				"SQL.allResults() requires XxxRow class have a @Select(query=\"select ...\")");
 		}
-		rowQuerySQL = select.query();
+		*/
+		if (select == null) {
+			StringBuilder sb = new StringBuilder("select ");
+			String comma = "";
+			for (Field field : rowClass.getFields()) {
+				String fieldName = field.getName();
+				if (fieldName.equals("rowNum")) {
+					continue;
+				}
+				sb.append(comma);
+				comma = ", ";
+				sb.append(camelToUnderscore(fieldName));
+			}
+			sb.append(" from ");
+			sb.append(tableName);
+			rowQuerySQL = sb.toString();
+			log.info("Generated: " + rowQuerySQL);
+		} else {
+			rowQuerySQL = select.query();
+		}
 		if (rowQuerySQL == null) {
 			throw new IllegalArgumentException(
 					"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
