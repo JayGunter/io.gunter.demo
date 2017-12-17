@@ -104,11 +104,11 @@ public class Test {
 		}
 		*/
 
-		/*
-		SQL.run(UserRow.class, getConn()); // uses UserRow.action()
-		SQL.run(UserRow.class, getConn(), UserRow::action2);
-		SQL.run(UserRow.class, getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
-		*/
+		if (false) {
+			SQL.run(UserRow.class, getConn()); // uses UserRow.action()
+			SQL.run(UserRow.class, getConn(), UserRow::action2);
+			SQL.run(UserRow.class, getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+		}
 		
 		/*
 		UserRow.where("name", "new1").stream(getConn());
@@ -117,7 +117,6 @@ public class Test {
 		//SQL.query(UserRow.class, getConn()).where("name", "new1").stream();
 		//SQL.query(UserRow.class, getConn()).where("name=?", "new1").stream();
 
-		int millisecs = 0;
 		int maxRuns = 0;
 
 		if (maxRuns > 0) {
@@ -125,16 +124,21 @@ public class Test {
 			runStandard(maxRuns);
 		}
 			runReflecting(2);
+			
+		
 
 		try (Connection conn = getConn();) {
 			UserRow row = new UserRow();
-			row.name = "new1";
+			row.name = "newA";
+			row.password = "newA";
 			SQL<UserRow> sql = new SQL<>(row, conn);
 			sql.insert();
+			//SQL.insert(row, conn);
 		}
 
 		UserRow row = new UserRow();
-		row.name = "new2";
+		row.name = "newB";
+		row.password = "newB";
 		row.save(getConn());
 
 		log.info("END RUN");
@@ -152,7 +156,7 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email"))) {
-						"select email, username, age as age from user"))) {
+						"select email, password, username, age as age from user"))) {
 					numRows++;
 				}
 			} catch (Exception e) {
@@ -160,7 +164,7 @@ public class Test {
 			}
 			Date end = new Date();
 			long elapsed = (end.getTime() - start.getTime());
-			// log.info("el=" + elapsed);
+			log.info("el=" + elapsed);
 			millisecs += elapsed;
 		}
 		log.info("numRows = " + numRows);
@@ -176,7 +180,7 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email");
-						"select username, age as age from user");
+						"select username, password, email, age as age from user");
 				ResultSet rs = preparedStatement.executeQuery();
 				while (rs.next()) {
 					// String userid = rs.getString("name");

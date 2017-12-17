@@ -94,6 +94,7 @@ public class SQL<RowClass extends Row> {
 		int value();
 	}
 
+	private Class<? extends Row> rowClass = null;
 	private RowClass rowClassObj = null;
 	private Connection conn = null;
 	private String rowQuerySQL = null;
@@ -103,6 +104,7 @@ public class SQL<RowClass extends Row> {
 	private int rowCount = 0;
 	private String[] resultColumns = null;
 	private Map<Integer, Field> columnToField = new HashMap<>();
+	private Field primaryKeyField = null;
 	private String tableName = null;
 
 	/**
@@ -112,6 +114,12 @@ public class SQL<RowClass extends Row> {
 	 */
 	public SQL(RowClass rowClassObj, Connection conn) {
 		this.rowClassObj = rowClassObj;
+		this.rowClass = rowClassObj.getClass();
+		this.conn = conn;
+	}
+
+	public SQL(Class<RowClass> clazz, Connection conn) {
+		this.rowClass = clazz;
 		this.conn = conn;
 	}
 
@@ -152,11 +160,23 @@ public class SQL<RowClass extends Row> {
 		return (SQL<RowClass>) this;
 	}
 
+	/**
+	 * 
+	 * @param clazz
+	 *            e.g. UserRow (where UserRow extends Row)
+	 * @param conn
+	 *            a DB connection to be closed upon completion.
+	 * @throws InstantiationException
+	 * @throws IllegalAccessException
+	 * @throws SQLException
+	 * @throws NoSuchMethodException
+	 * @throws SecurityException
+	 */
 	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn) throws InstantiationException,
 			IllegalAccessException, SQLException, NoSuchMethodException, SecurityException {
 		RowClass row = (RowClass) clazz.newInstance();
 		Method method = row.getClass().getMethod("action");
-		//run(clazz, conn, method);
+		// run(clazz, conn, method);
 		// Consumer<RowClass> action = method;
 		new SQL<RowClass>(row, conn).forEach((RowClass rc) -> {
 			try {
@@ -171,19 +191,28 @@ public class SQL<RowClass extends Row> {
 		});
 	}
 
-	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action) 
-	//public static <RowClass extends Row> void run(RowClass rowClassObj, Connection conn, Consumer<RowClass> action)
+	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action)
+			// public static <RowClass extends Row> void run(RowClass
+			// rowClassObj, Connection conn, Consumer<RowClass> action)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		query(clazz, conn).forEach(action);
 		/*
-		@SuppressWarnings("unchecked")
-		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
-		new SQL<RowClass>(row, conn).forEach(action);
-		*/
+		 * @SuppressWarnings("unchecked") RowClass row = (RowClass)
+		 * rowClassObj.getClass().newInstance(); new SQL<RowClass>(row,
+		 * conn).forEach(action);
+		 */
 	}
 
+	/**
+	 * TODO document field-column name mapping and use of Order annotation. TODO
+	 * rename this method to ... mapFieldsToColumns
+	 * 
+	 * @throws IllegalArgumentException
+	 * @throws IllegalAccessException
+	 */
 	void filterFields() throws IllegalArgumentException, IllegalAccessException {
-		for (Field field : rowClassObj.getClass().getFields()) {
+		// for (Field field : rowClassObj.getClass().getFields()) {
+		for (Field field : rowClass.getFields()) {
 			log.debug("field name = " + field.getName());
 			if (field.getName().equals("rowNum")) {
 				this.rowNumField = field;
@@ -217,54 +246,49 @@ public class SQL<RowClass extends Row> {
 					}
 					columnToField.put(colIndex, field);
 				}
+				if (colIndex != -1) {
+					if (field.getName().equals("id")) {
+						primaryKeyField = field;
+					}
+				}
 			}
 		}
 	}
 
 	/**
-	 * Returns a List of all row objects generated.
+	 * Runs specified query. Returns a List of all row objects generated.
 	 */
 	@SuppressWarnings("unchecked")
-	public RowClass[] allResults(String sql) throws SQLException, InstantiationException, IllegalAccessException {
+	public List<RowClass> allResults(String sql) throws SQLException, InstantiationException, IllegalAccessException {
 		List<RowClass> rowList = new LinkedList<>();
-		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		RowClass row = (RowClass) rowClass.newInstance();
 		while (null != (row = query(sql))) {
 			rowList.add(row);
 		}
-		row = (RowClass) rowClassObj.getClass().newInstance();
-		RowClass[] rowArray = (RowClass[]) Array.newInstance(row.getClass(), rowList.size());
-		rowList.toArray(rowArray);
-		return rowArray;
+		return rowList;
 	}
 
 	/**
-	 * Returns a List of all row objects generated.
+	 * Runs RowClass query. Returns a List of all row objects generated.
 	 */
 	@SuppressWarnings("unchecked")
-	public RowClass[] allResults() throws SQLException, InstantiationException, IllegalAccessException {
-		List<RowClass> rowList = new LinkedList<>();
-		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
-		while (null != (row = query(null))) {
-			rowList.add(row);
-		}
-		row = (RowClass) rowClassObj.getClass().newInstance();
-		RowClass[] rowArray = (RowClass[]) Array.newInstance(row.getClass(), rowList.size());
-		rowList.toArray(rowArray);
-		return rowArray;
+	public List<RowClass> allResults() throws SQLException, InstantiationException, IllegalAccessException {
+		return allResults(null);
 	}
 
 	/**
 	 * Invokes the action on each row. Closes the connection.
 	 * 
 	 * @param action
-	 *            the consumer of a row
+	 *            the consumer of a row, a method
 	 * @throws InstantiationException
 	 * @throws IllegalAccessException
 	 * @throws SQLException
 	 */
 	public void forEach(Consumer<RowClass> action) throws InstantiationException, IllegalAccessException, SQLException {
-		// Arrays.stream(allResults()).forEach(action);
-		Stream.of(allResults()).forEach(action);
+		// Stream.of(allResults()).forEach(action);
+		allResults().stream().forEach(action);
 		close();
 	}
 
@@ -340,20 +364,30 @@ public class SQL<RowClass extends Row> {
 	/*
 	 * Use this query method when ps.setXXX is used to set where-clause values.
 	 */
-	public RowClass query(PreparedStatement ps, String sql)
+	public RowClass queryStatement(PreparedStatement ps)
 			throws SQLException, InstantiationException, IllegalAccessException {
-		return doQuery(ps, sql);
+		if (ps == null) {
+			throw new IllegalArgumentException("PreparedStatement is null.");
+		}
+		return doQuery(ps, null);
 	}
 
 	/*
-	 * Use this query method for SQL without parameters
+	 * Use this query method for SQL without parameters. The first call performs
+	 * the query (creating the PreparedStatement if none was passed). Every call
+	 * returns a result row.
 	 */
 	public RowClass query(String sql) throws SQLException, InstantiationException, IllegalAccessException {
+		if (sql == null) {
+			throw new IllegalArgumentException("SQL query string is null.");
+		}
 		return doQuery(null, sql);
 	}
 
 	/*
-	 * Use this query method for SQL query specified in RowClass
+	 * Use this query method for SQL query specified in RowClass. The first call
+	 * performs the query (creating the PreparedStatement if none was passed).
+	 * Every call returns a result row.
 	 */
 	public RowClass query() throws SQLException, InstantiationException, IllegalAccessException {
 		return doQuery(null, null);
@@ -366,31 +400,16 @@ public class SQL<RowClass extends Row> {
 	private RowClass doQuery(PreparedStatement ps, String sql)
 			throws SQLException, InstantiationException, IllegalAccessException, SecurityException {
 		if (!hitDb) {
-			if (sql == null) {
-				sql = getRowQuerySQL();
-				/*
-				Field queryField = null;
-				try {
-					queryField = rowClassObj.getClass().getField("query");
-					sql = (String) queryField.get(null);
-				} catch (NoSuchFieldException e) {
-					throw new IllegalArgumentException(
-							"SQL.allResults() requires Row class have a public static final String query field.");
-				}
-				*/
-				/*
-				 * TODO remove: could not get to UserRow.getQuery. RowClass row
-				 * = (RowClass) rowClassObj.getClass().newInstance(); sql =
-				 * row.getQuery();
-				 */
-				if (sql == null) {
-					throw new IllegalArgumentException(
-							"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
-				}
-			}
-			getQueryColumnNames(sql);
-			filterFields();
 			if (ps == null) {
+				if (sql == null) {
+					sql = getRowQuerySQL();
+					if (sql == null) {
+						throw new IllegalArgumentException(
+								"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
+					}
+				}
+				getQueryColumnNames(sql);
+				filterFields();
 				ps = conn.prepareStatement(sql);
 			}
 			rs = ps.executeQuery();
@@ -406,7 +425,8 @@ public class SQL<RowClass extends Row> {
 		}
 
 		@SuppressWarnings("unchecked")
-		RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		RowClass row = (RowClass) rowClass.newInstance();
 
 		for (Integer colIndex : columnToField.keySet()) {
 			Field field = columnToField.get(colIndex);
@@ -422,54 +442,82 @@ public class SQL<RowClass extends Row> {
 		return row;
 	}
 
-	public void insert() throws IllegalArgumentException, IllegalAccessException {
+	public void insert() throws IllegalArgumentException, IllegalAccessException, SQLException {
 		insert(this.rowClassObj);
 	}
 
-	public void insert(RowClass row) throws IllegalArgumentException, IllegalAccessException {
+	public void insert(RowClass row) throws IllegalArgumentException, IllegalAccessException, SQLException {
+		if (row == null) {
+			throw new IllegalArgumentException("Cannot insert null row object.");
+		}
 		List<RowClass> rows = new ArrayList<RowClass>(1);
 		rows.add(row);
 		insert(rows);
 	}
 
-	public void insert(List<RowClass> rows) throws IllegalArgumentException, IllegalAccessException {
+	public void insert(List<RowClass> rows) throws IllegalArgumentException, IllegalAccessException, SQLException {
+		if (rows == null) {
+			throw new IllegalArgumentException("Cannot insert null list of row objects.");
+		}
+		if (rows.size() == 0) {
+			throw new IllegalArgumentException("Cannot insert empty list of row objects.");
+		}
 		if (tableName == null) {
-//			getQueryColumnNames(rows.get(0).getQuery());
+			// getQueryColumnNames(rows.get(0).getQuery());
 			getQueryColumnNames(getRowQuerySQL());
 			filterFields();
 		}
 		StringBuilder query = new StringBuilder("insert into ");
 		query.append(tableName);
 		query.append(" (");
-		String valComma = "";
+		String comma = "";
+		StringBuilder valuePlaceholders = new StringBuilder(") values (");
 		for (String columnName : resultColumns) {
-			query.append(valComma);
-			valComma = ",";
+			query.append(comma);
+			valuePlaceholders.append(comma);
+			comma = ",";
 			query.append(columnName);
+			valuePlaceholders.append("?");
 		}
-		query.append(") values ");
-		String rowComma = "";
-		for (RowClass row : rows) {
-			query.append(rowComma);
-			rowComma = ",";
-			query.append("(");
-			valComma = "";
-			for (Integer colIndex : columnToField.keySet()) {
-				Field field = columnToField.get(colIndex);
-				query.append(valComma);
-				valComma = ",";
-				String colValue = (String) field.get(row);
-				if (field.getType() == String.class && colValue != null) {
-					colValue = "'" + colValue + "'";
-				}
-				query.append(colValue);
-			}
-			query.append(")");
-		}
+		query.append(valuePlaceholders);
+		query.append(")");
 		log.info("Insert query = " + query);
-		// TODO run the insert!
+		try (PreparedStatement ps = conn.prepareStatement(query.toString())) {
+			for (RowClass row : rows) {
+				for (Integer colIndex : columnToField.keySet()) {
+					Field field = columnToField.get(colIndex);
+					ps.setObject(colIndex, field.get(row));
+				}
+				ps.addBatch();
+			}
+			StringBuilder failedRows = new StringBuilder("");
+			int rowCount = 0;
+			int failedCount = 0;
+			int[] rowInsertCounts = ps.executeBatch();
+			ResultSet generatedIds = ps.getGeneratedKeys();
+			for (int oneOnSuccess : ps.executeBatch()) {
+				if (rowCount == 10) {
+					failedRows.append("...");
+				}
+				if (oneOnSuccess != 1) {
+					failedCount++;
+					failedRows.append(" ");
+					failedRows.append(rowCount);
+				} else {
+					if (generatedIds.next()) {
+						primaryKeyField.set(rows.get(rowCount), generatedIds.getInt(1));
+					}
+				}
+				rowCount++;
+			}
+			if (failedCount > 0) {
+				throw new SQLException(
+						"Failed to insert " + failedCount + " of " + rowCount + " rows.  Failed rows: " + failedRows);
+			}
+		} finally {
+			close();
+		}
 	}
-
 
 	private String getRowQuerySQL() {
 		if (rowQuerySQL != null) {
@@ -503,6 +551,33 @@ public class SQL<RowClass extends Row> {
 		if (conn != null) {
 			conn.close();
 		}
+	}
+
+	/**
+	 * Convert userId to user_id, AbcDEFghi to abc_defghi.  Replace all lU with l_u.
+	 * @param camel-case string
+	 * @return string with camel transitions replaced by underscores
+	 */
+	public static String camelToUnderscore(String camel) {
+		return camel.replaceAll("(.)(\\p{Upper})", "$1_$2").toLowerCase();
+	}
+
+	/**
+	 * Convert user_id to userId.
+	 * @param und string
+	 * @return string with underscores replaced by camel back.
+	 */
+	public static String underscoreToCamel(String und, boolean isClassName) {
+		//return und.replaceAll("(.)_(.)", "$1$2");
+		StringBuilder sb = new StringBuilder();
+		boolean isFirstWord = true;
+		for (String word : und.toLowerCase().split("_")) {
+			String firstChar = word.substring(0, 1);
+			sb.append(isFirstWord && !isClassName ? firstChar : firstChar.toUpperCase());
+			sb.append(word.substring(1));
+			isFirstWord = false;
+		}
+		return sb.toString();
 	}
 
 }

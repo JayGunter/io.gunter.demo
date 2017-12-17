@@ -15,11 +15,12 @@ public class UserRow extends Row {
 		return "select username, email, age from user";
 	}
 	*/
-	public static final String query = "select username, email, age from user";
+	public static final String query = "select username, email, age, password from user";
 
 	public Integer age;
 	public String name;
 	public String mail;
+	public String password;
 
 	// optional 'action' will be used by SQL.run(RowObj,Connection)
 	public void action() {

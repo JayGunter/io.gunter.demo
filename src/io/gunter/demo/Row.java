@@ -6,6 +6,7 @@ import java.util.stream.Stream;
 
 public abstract class Row {
 	public Integer rowNum;
+	private boolean dirty;
 	
 	/*
 	public static Row where(Object... keysAndValues) {
@@ -16,6 +17,11 @@ public abstract class Row {
 	// TODO could this work to return a stream of e.g. UserRow objects?
 	public Stream<Row> stream(Connection conn) {
 		return null;
+	}
+	
+	public Row mod() {
+		dirty = true;
+		return this;
 	}
 
 	/* TODO bag this in favor of insert/update */
