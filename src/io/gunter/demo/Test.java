@@ -47,7 +47,7 @@ public class Test {
 		 * 
 		 * try (Connection conn = getConn();) { UserRow row = new UserRow();
 		 * SQL<UserRow> sql = new SQL<>(row, conn); while (null != (row =
-		 * sql.query("select username, age from user;"))) { // Row objects make
+		 * sql.query("select user_name, age from user;"))) { // Row objects make
 		 * it easy to pass data to other methods, // and to generate JSON.
 		 * System.out.println("row#" + row.rowNum + ": str=" + row.str +
 		 * ", num: " + row.num); try { // TODO // ObjectMapper mapper = new
@@ -67,13 +67,13 @@ public class Test {
 		 * 
 		 * try (Connection conn = getConn();) { UserRow2 row = new UserRow2();
 		 * SQL<UserRow2> sql = new SQL<>(row, conn); while (null != (row =
-		 * sql.query("select username, age from user;"))) { row.print(); } }
+		 * sql.query("select user_name, age from user;"))) { row.print(); } }
 		 * 
 		 * System.out.println("Query, buffer all rows, and process...");
 		 * 
 		 * try (Connection conn = getConn();) { SQL<UserRow2> sql = new
 		 * SQL<>(new UserRow2(), conn);
-		 * Arrays.stream(sql.allResults("select username, age from user;")).
+		 * Arrays.stream(sql.allResults("select user_name, age from user;")).
 		 * forEach(UserRow2::print); }
 		 */
 
@@ -84,7 +84,7 @@ public class Test {
 		class UserRow extends Row { // all public fields
 			//@Override
 			public static String getQuery() {
-				return "select username, email, age from user";
+				return "select user_name, email, age from user";
 			}
 
 			public Integer age;
@@ -107,7 +107,7 @@ public class Test {
 		if (false) {
 			SQL.run(UserRow.class, getConn()); // uses UserRow.action()
 			SQL.run(UserRow.class, getConn(), UserRow::action2);
-			SQL.run(UserRow.class, getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", name=" + r.name));
+			SQL.run(UserRow.class, getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", userName=" + r.userName));
 		}
 		
 		/*
@@ -129,7 +129,7 @@ public class Test {
 
 		try (Connection conn = getConn();) {
 			UserRow row = new UserRow();
-			row.name = "newA";
+			row.userName = "newA";
 			row.password = "newA";
 			SQL<UserRow> sql = new SQL<>(row, conn);
 			sql.insert();
@@ -137,10 +137,23 @@ public class Test {
 		}
 
 		UserRow row = new UserRow();
-		row.name = "newB";
+		row.userName = "newB";
 		row.password = "newB";
 		row.save(getConn());
 
+		/*
+		log.info(SQL.camelToUnderscore("myID"));
+		log.info(SQL.camelToUnderscore("myId"));
+		log.info(SQL.camelToUnderscore("myAJAXCall"));
+		log.info(SQL.camelToUnderscore("AbcDEFghi"));
+		log.info(SQL.camelToUnderscore("AbcDefGHIJk"));
+		log.info(SQL.camelToUnderscore("AbcDEfGHIjk"));
+		log.info(SQL.camelToUnderscore("AbcDefGHIjk"));
+		log.info(SQL.underscoreToCamel("user_id", true));
+		log.info(SQL.underscoreToCamel("user_id", false));
+		*/
+		log.info(SQL.camelToUnderscore("myCatwingIsWarmRow"));
+		log.info(SQL.underscoreToCamel("my_catwing_is_warm", true));
 		log.info("END RUN");
 	}
 
@@ -156,7 +169,7 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email"))) {
-						"select email, password, username, age as age from user"))) {
+						"select email, password, user_name, age as age from user"))) {
 					numRows++;
 				}
 			} catch (Exception e) {
@@ -180,7 +193,7 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email");
-						"select username, password, email, age as age from user");
+						"select user_name, password, email, age as age from user");
 				ResultSet rs = preparedStatement.executeQuery();
 				while (rs.next()) {
 					// String userid = rs.getString("name");

@@ -1,30 +1,22 @@
 package io.gunter.demo;
 
-import static java.lang.System.err;
-import static java.lang.System.out;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
-
-import com.fasterxml.jackson.core.JsonProcessingException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -92,6 +84,11 @@ public class SQL<RowClass extends Row> {
 	@Retention(RetentionPolicy.RUNTIME)
 	public @interface Order {
 		int value();
+	}
+
+	@Retention(RetentionPolicy.RUNTIME)
+	public @interface Select {
+		String query();
 	}
 
 	private Class<? extends Row> rowClass = null;
@@ -216,8 +213,6 @@ public class SQL<RowClass extends Row> {
 			log.debug("field name = " + field.getName());
 			if (field.getName().equals("rowNum")) {
 				this.rowNumField = field;
-			} else if (field.getName().equals("query")) {
-				// "query" field is handled in doQuery
 			} else {
 				int colIndex = -1;
 				Order order = field.getAnnotation(Order.class);
@@ -293,6 +288,7 @@ public class SQL<RowClass extends Row> {
 	}
 
 	private void getQueryColumnNames(String sqlOrig) {
+		log.info("sqlOrig = " + sqlOrig);
 		String sql = sqlOrig;
 		String lowerCaseSql = sql.toLowerCase();
 		int selectIndex = lowerCaseSql.indexOf("select ");
@@ -308,6 +304,7 @@ public class SQL<RowClass extends Row> {
 		if (!Character.isLetter(tableName.charAt(0))) {
 			tableName = null;
 		}
+		log.info("tableName = " + tableName);
 		String csvResultColumns = lowerCaseSql.substring(selectIndex + 7, fromIndex);
 		// strip parens and text inside them
 		while (true) {
@@ -358,6 +355,7 @@ public class SQL<RowClass extends Row> {
 			if (asIndex != -1) {
 				resultColumns[i] = resultColumns[i].substring(asIndex + 4);
 			}
+			resultColumns[i] = underscoreToCamel(resultColumns[i], false);
 		}
 	}
 
@@ -476,16 +474,17 @@ public class SQL<RowClass extends Row> {
 			query.append(comma);
 			valuePlaceholders.append(comma);
 			comma = ",";
-			query.append(columnName);
+			query.append(camelToUnderscore(columnName));
 			valuePlaceholders.append("?");
 		}
 		query.append(valuePlaceholders);
 		query.append(")");
 		log.info("Insert query = " + query);
-		try (PreparedStatement ps = conn.prepareStatement(query.toString())) {
+		try (PreparedStatement ps = conn.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS)) {
 			for (RowClass row : rows) {
 				for (Integer colIndex : columnToField.keySet()) {
 					Field field = columnToField.get(colIndex);
+					log.info("field name = " + field.getName() + ", value = " + field.get(row));
 					ps.setObject(colIndex, field.get(row));
 				}
 				ps.addBatch();
@@ -524,6 +523,7 @@ public class SQL<RowClass extends Row> {
 			return rowQuerySQL;
 		}
 
+		/* TODO remove when @Select is working
 		Field queryField = null;
 		try {
 			queryField = rowClassObj.getClass().getField("query");
@@ -532,11 +532,14 @@ public class SQL<RowClass extends Row> {
 			throw new IllegalArgumentException(
 					"SQL.allResults() requires Row class have a public static final String query field.");
 		}
-		/*
-		 * TODO remove: could not get to UserRow.getQuery. RowClass row =
-		 * (RowClass) rowClassObj.getClass().newInstance(); sql =
-		 * row.getQuery();
-		 */
+		*/
+
+		Select select = rowClassObj.getClass().getAnnotation(Select.class);
+		if (select == null) {
+			throw new IllegalArgumentException(
+				"SQL.allResults() requires XxxRow class have a @Select(query=\"select ...\")");
+		}
+		rowQuerySQL = select.query();
 		if (rowQuerySQL == null) {
 			throw new IllegalArgumentException(
 					"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
@@ -555,11 +558,12 @@ public class SQL<RowClass extends Row> {
 
 	/**
 	 * Convert userId to user_id, AbcDEFghi to abc_defghi.  Replace all lU with l_u.
+	 * Also strips trailing "Row" to convert class name UserRow to table name user.
 	 * @param camel-case string
 	 * @return string with camel transitions replaced by underscores
 	 */
 	public static String camelToUnderscore(String camel) {
-		return camel.replaceAll("(.)(\\p{Upper})", "$1_$2").toLowerCase();
+		return camel.replaceAll("Row$", "").replaceAll("(\\p{Lower})(\\p{Upper})", "$1_$2").toLowerCase();
 	}
 
 	/**
