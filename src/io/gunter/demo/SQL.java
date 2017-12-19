@@ -490,18 +490,24 @@ public class SQL<RowClass extends Row> {
 			int rowCount = 0;
 			int failedCount = 0;
 			int[] rowInsertCounts = ps.executeBatch();
+			//log.info("ric.len="+rowInsertCounts.length);
 			ResultSet generatedIds = ps.getGeneratedKeys();
-			for (int oneOnSuccess : ps.executeBatch()) {
+			for (int oneOnSuccess : rowInsertCounts) {
 				if (rowCount == 10) {
 					failedRows.append("...");
 				}
+				//log.info("rowCount="+rowCount+", " + oneOnSuccess);
 				if (oneOnSuccess != 1) {
 					failedCount++;
 					failedRows.append(" ");
 					failedRows.append(rowCount);
 				} else {
+					//log.info("next...");
 					if (generatedIds.next()) {
-						primaryKeyField.set(rows.get(rowCount), generatedIds.getInt(1));
+						int id = generatedIds.getInt(1);
+						//log.info("id="+ id);
+						//log.info("pkf.name="+primaryKeyField.getName());
+						primaryKeyField.set(rows.get(rowCount), id);
 					}
 				}
 				rowCount++;
