@@ -414,7 +414,7 @@ public class SQL<RowClass extends Row> {
 		return getRow();
 	}
 
-	public RowClass getRow() throws SQLException, InstantiationException, IllegalAccessException {
+	public <RowClass extends Row> RowClass getRow() throws SQLException, InstantiationException, IllegalAccessException {
 		if (!rs.next()) {
 			return null;
 		}
@@ -434,6 +434,7 @@ public class SQL<RowClass extends Row> {
 		}
 
 		rowNumField.set(row, ++rowCount);
+		row.setInDb(true);
 		return row;
 	}
 
@@ -507,7 +508,9 @@ public class SQL<RowClass extends Row> {
 						int id = generatedIds.getInt(1);
 						//log.info("id="+ id);
 						//log.info("pkf.name="+primaryKeyField.getName());
-						primaryKeyField.set(rows.get(rowCount), id);
+						RowClass row = rows.get(rowCount);
+						primaryKeyField.set(row, id);
+						row.setInDb(true);
 					}
 				}
 				rowCount++;
@@ -515,6 +518,52 @@ public class SQL<RowClass extends Row> {
 			if (failedCount > 0) {
 				throw new SQLException(
 						"Failed to insert " + failedCount + " of " + rowCount + " rows.  Failed rows: " + failedRows);
+			}
+		} finally {
+			close();
+		}
+	}
+
+	public void update() throws IllegalArgumentException, IllegalAccessException, SQLException {
+		update(this.rowClassObj);
+	}
+
+	public void update(RowClass row) throws IllegalArgumentException, IllegalAccessException, SQLException {
+		if (row == null) {
+			throw new IllegalArgumentException("Cannot update null row object.");
+		}
+		if (tableName == null) {
+			// getQueryColumnNames(rows.get(0).getQuery());
+			getQueryColumnNames(getRowQuerySQL());
+			filterFields();
+		}
+		StringBuilder query = new StringBuilder("update ");
+		query.append(tableName);
+		query.append(" set ");
+		String comma = "";
+		for (String columnName : resultColumns) {
+			query.append(comma);
+			comma = ",";
+			query.append(camelToUnderscore(columnName));
+			query.append(" = ?");
+		}
+		query.append(" where ");
+		query.append(camelToUnderscore(primaryKeyField.getName()));
+		query.append(" = ?");
+		log.info("Update query = " + query);
+		try (PreparedStatement ps = conn.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS)) {
+			int colCount = 1;
+			for (Integer colIndex : columnToField.keySet()) {
+				Field field = columnToField.get(colIndex);
+				log.info("ci=" + colIndex + ", field name = " + field.getName() + ", value = " + field.get(row));
+				ps.setObject(colIndex, field.get(row));
+				colCount++;
+			}
+			log.info("cc=" + colCount);
+			ps.setObject(colCount, primaryKeyField.get(row));
+			if (1 != ps.executeUpdate()) {
+				throw new SQLException(
+					"Failed:  " + query.toString());
 			}
 		} finally {
 			close();

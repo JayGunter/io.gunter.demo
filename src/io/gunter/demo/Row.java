@@ -7,6 +7,15 @@ import java.util.stream.Stream;
 public abstract class Row {
 	public Integer rowNum;
 	private boolean dirty;
+	private boolean inDb;
+	
+	public boolean inDb() {
+		return inDb;
+	}
+	
+	public void setInDb(boolean b) {
+		inDb = true;;
+	}
 
 	/**
 	 * Usage:  userRow.mod(); userRow.age++; userRow.save();
@@ -32,7 +41,11 @@ public abstract class Row {
 	public void save(Connection conn) throws IllegalArgumentException, IllegalAccessException, SQLException {
 		try {
 			SQL<Row> sql = new SQL<>(this, conn);
-			sql.insert();
+			if (this.inDb) {
+				sql.update();
+			} else {
+				sql.insert();
+			}
 		} finally {
 			conn.close();
 		}

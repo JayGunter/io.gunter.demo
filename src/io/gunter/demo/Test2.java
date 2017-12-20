@@ -32,7 +32,9 @@ public class Test2 {
 		empRow.firstName = "f1";
 		empRow.lastName = "l1";
 		empRow.save(getConn());
-		log.info("id=" + empRow.id);
+		log.info("id=" + empRow.id + ", rowNum=" + empRow.rowNum + ", fromDb=" + empRow.inDb());
+		empRow.firstName = "uf1";
+		empRow.save(getConn());
 	}
 
 }
