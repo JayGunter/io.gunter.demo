@@ -79,7 +79,7 @@ import lombok.extern.slf4j.Slf4j;
  *            See example class UserRow above.
  */
 @Slf4j(topic = "SQL")
-public class SQL<RowClass extends Row> implements AutoCloseable {
+public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 
 	@Retention(RetentionPolicy.RUNTIME)
 	public @interface Order {
@@ -95,7 +95,8 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 	public @interface PK {
 	}
 
-	private Class<? extends Row> rowClass = null;
+//	private Class<? extends Row> rowClass = null;
+	private Class<? extends Row<?>> rowClass = null;
 	private RowClass rowClassObj = null;
 	private Connection conn = null;
 	private String rowQuerySQL = null;
@@ -108,8 +109,8 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 	private Field primaryKeyField = null;
 	private String primaryKeyCamelName = null;
 	private String primaryKeyUnderscoreName = null;
-	// TODO remove?  would hold old value if XxxRow.id was set to another value
-	//private Object primaryKeyValue = null;
+	// TODO remove? would hold old value if XxxRow.id was set to another value
+	// private Object primaryKeyValue = null;
 	private String tableName = null;
 
 	/**
@@ -117,9 +118,11 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 	 * <RowClass>. - the database query contained in the 'query' field of
 	 * rowClassObj. - a specified SQL query, or - a PreparedStatement.
 	 */
+//	public SQL(Row<RowClass> rowClassObj, Connection conn) {
+	@SuppressWarnings("unchecked")
 	public SQL(RowClass rowClassObj, Connection conn) {
-		this.rowClassObj = rowClassObj;
-		this.rowClass = rowClassObj.getClass();
+		this.rowClassObj = (RowClass) rowClassObj;
+		this.rowClass = (Class<? extends Row<?>>) rowClassObj.getClass();
 		this.conn = conn;
 	}
 
@@ -128,14 +131,18 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 		this.conn = conn;
 	}
 
-	public static <RowClass extends Row> SQL<RowClass> query(Class<RowClass> clazz, Connection conn)
-			throws InstantiationException, IllegalAccessException, SQLException {
-		RowClass row = (RowClass) clazz.newInstance();
-		return new SQL<RowClass>(row, conn);
+	public static <RowClass extends Row<?>> SQL<RowClass> create(Class<RowClass> clazz, Connection conn) {
+		return new SQL<RowClass>(clazz, conn);
 	}
 
-	@SuppressWarnings("unchecked")
-	public <RowClass extends Row> SQL<RowClass> where(Object... keysAndValues) {
+	public static <RowClass extends Row<?>> SQL<RowClass> query(Class<RowClass> clazz, Connection conn)
+			throws InstantiationException, IllegalAccessException, SQLException {
+		return create(clazz, conn);
+//		RowClass row = (RowClass) clazz.newInstance();
+//		return new SQL<RowClass>(row, conn);
+	}
+
+	public SQL<RowClass> where(Object... keysAndValues) {
 		String sql = getRowQuerySQL();
 		StringBuilder query = new StringBuilder(sql);
 		query.append(" WHERE ");
@@ -168,15 +175,15 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 
 		return (SQL<RowClass>) this;
 	}
-	
+
 	public String getPkCamelName() {
 		return primaryKeyCamelName;
 	}
-	
+
 	public String getPkUnderscoreName() {
 		return primaryKeyUnderscoreName;
 	}
-	
+
 	public Object getPkValue() {
 		try {
 			return primaryKeyField.get(rowClassObj);
@@ -198,44 +205,48 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 	 * @throws NoSuchMethodException
 	 * @throws SecurityException
 	 */
-	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn) throws InstantiationException,
+	public static <RowClass extends Row<?>> void run(Class<RowClass> clazz, Connection conn) throws InstantiationException,
 			IllegalAccessException, SQLException, NoSuchMethodException, SecurityException {
 		RowClass row = (RowClass) clazz.newInstance();
 		Method method = row.getClass().getMethod("action");
 		// run(clazz, conn, method);
 		// Consumer<RowClass> action = method;
-		new SQL<RowClass>(row, conn).forEach((RowClass rc) -> {
-			try {
-				method.invoke(rc);
-			} catch (IllegalAccessException e) {
-				e.printStackTrace();
-			} catch (IllegalArgumentException e) {
-				e.printStackTrace();
-			} catch (InvocationTargetException e) {
-				e.printStackTrace();
-			}
-		});
+		// new SQL<Row<RowClass>>(row, conn).forEach((RowClass rc) -> {
+		try (SQL<RowClass> sql = new SQL<RowClass>(row, conn)) {
+			sql.forEach((RowClass rc) -> {
+				try {
+					method.invoke(rc);
+				} catch (IllegalAccessException e) {
+					e.printStackTrace();
+				} catch (IllegalArgumentException e) {
+					e.printStackTrace();
+				} catch (InvocationTargetException e) {
+					e.printStackTrace();
+				}
+			});
+		}
 	}
 
-	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action)
+	public static <RowClass extends Row<?>> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		query(clazz, conn).forEach(action);
 	}
 
-	public static <RowClass extends Row> RowClass getById(Class<RowClass> clazz, Object id, Connection conn)
+	public static <RowClass extends Row<?>> RowClass getById(Class<RowClass> clazz, Object id, Connection conn)
 			throws InstantiationException, IllegalAccessException, SQLException {
-		SQL<RowClass> sql = new SQL<>(clazz, conn);
-		sql.getQueryColumnNames(sql.getRowQuerySQL());
-		sql.filterFields();
-		sql.where(camelToUnderscore(sql.primaryKeyField.getName()), id);
-		List<RowClass> rows = sql.allResults();
-		switch (rows.size()) {
-		case 0:
-			return null;
-		case 1:
-			return rows.get(0);
-		default:
-			throw new IllegalArgumentException("Found " + rows.size() + " rows for id " + id);
+		try (SQL<RowClass> sql = new SQL<>(clazz, conn)) {
+			sql.getQueryColumnNames(sql.getRowQuerySQL());
+			sql.filterFields();
+			sql.where(camelToUnderscore(sql.primaryKeyField.getName()), id);
+			List<RowClass> rows = sql.allResults();
+			switch (rows.size()) {
+			case 0:
+				return null;
+			case 1:
+				return rows.get(0);
+			default:
+				throw new IllegalArgumentException("Found " + rows.size() + " rows for id " + id);
+			}
 		}
 	}
 
@@ -285,7 +296,7 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 						primaryKeyField = field;
 						primaryKeyCamelName = underscoreToCamel(field.getName(), false);
 						primaryKeyUnderscoreName = camelToUnderscore(field.getName());
-						//primaryKeyValue = field.get(rowClassObj);
+						// primaryKeyValue = field.get(rowClassObj);
 					}
 				}
 			}
@@ -309,7 +320,6 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 	/**
 	 * Runs RowClass query. Returns a List of all row objects generated.
 	 */
-	@SuppressWarnings("unchecked")
 	public List<RowClass> allResults() throws SQLException, InstantiationException, IllegalAccessException {
 		return allResults(getRowQuerySQL());
 	}
@@ -459,8 +469,7 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 		return getRow();
 	}
 
-	public <RowClass extends Row> RowClass getRow()
-			throws SQLException, InstantiationException, IllegalAccessException {
+	public RowClass getRow() throws SQLException, InstantiationException, IllegalAccessException {
 		if (!rs.next()) {
 			return null;
 		}
@@ -569,7 +578,7 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 			close();
 		}
 	}
-	
+
 	public void update() throws IllegalArgumentException, IllegalAccessException, SQLException {
 		update(this.rowClassObj);
 	}
@@ -614,7 +623,7 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 			close();
 		}
 	}
-	
+
 	public void delete() throws IllegalArgumentException, IllegalAccessException, SQLException {
 		delete(this.rowClassObj);
 	}
@@ -677,10 +686,6 @@ public class SQL<RowClass extends Row> implements AutoCloseable {
 			log.info("Generated: " + rowQuerySQL);
 		} else {
 			rowQuerySQL = select.query();
-		}
-		if (rowQuerySQL == null) {
-			throw new IllegalArgumentException(
-					"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
 		}
 		return rowQuerySQL;
 	}

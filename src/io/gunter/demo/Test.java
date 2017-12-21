@@ -80,7 +80,7 @@ public class Test {
 		// log.info("Tidy: Query, buffer all rows, and process...");
 
 
-		if (false) {
+		if (true) {
 			SQL.run(UserRow.class, getConn()); // uses UserRow.action()
 			SQL.run(UserRow.class, getConn(), UserRow::action2);
 			SQL.run(UserRow.class, getConn(), (UserRow r) -> err.println("LAMBDA rowNum=" + r.rowNum + ", userName=" + r.userName));

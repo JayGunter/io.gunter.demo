@@ -4,7 +4,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.stream.Stream;
 
-public abstract class Row<RowClass extends Row> {
+public abstract class Row<RowClass extends Row<?>> {
 	public Integer rowNum;
 	private boolean dirty;
 	private boolean inDb;
@@ -22,13 +22,18 @@ public abstract class Row<RowClass extends Row> {
 	 * 
 	 * @return
 	 */
-	public Row mod() {
+	public Row<RowClass> mod() {
 		dirty = true;
 		return this;
 	}
 
+	public boolean isMod() {
+		return dirty;
+	}
+
 	// TODO would this be useful? It doesn't help static methods
 	// that don't receive an object/class to work with.
+	@SuppressWarnings("unchecked")
 	public RowClass getSubTypedObject() {
 		return (RowClass) this;
 	}
@@ -39,19 +44,23 @@ public abstract class Row<RowClass extends Row> {
 	 */
 
 	// TODO could this work to return a stream of e.g. UserRow objects?
-	public Stream<Row> stream(Connection conn) {
+	public Stream<RowClass> stream(Connection conn) {
 		return null;
 	}
 
-	public static <RowClass extends Row> RowClass getById(Class rowClazz, Integer id, Connection conn)
+	public static <RowClass extends Row<?>> RowClass getById(Class<RowClass> rowClazz, Integer id, Connection conn)
 			throws InstantiationException, IllegalAccessException, SQLException {
-		SQL<RowClass> sql = new SQL<>(rowClazz, conn);
-		return (RowClass) sql.getById(rowClazz, id, conn);
+		return SQL.<RowClass>getById(rowClazz, id, conn);
+		/*
+		try (SQL<RowClass> sql = new SQL<>(rowClazz, conn)) {
+			return (RowClass) sql.getById(rowClazz, id, conn);
+		}
+		*/
 	}
 
 	public void save(Connection conn) throws IllegalArgumentException, IllegalAccessException, SQLException {
-		try {
-			SQL<Row> sql = new SQL<>(this, conn);
+		try (@SuppressWarnings("unchecked")
+		SQL<RowClass> sql = new SQL<RowClass>((RowClass)this, conn)) {
 			if (this.inDb) {
 				sql.update();
 			} else {
@@ -61,9 +70,10 @@ public abstract class Row<RowClass extends Row> {
 			conn.close();
 		}
 	}
-	
+
 	public void delete(Connection conn) throws IllegalArgumentException, IllegalAccessException, SQLException {
-		try (SQL<Row> sql = new SQL<>(this, conn)) {
+		try (@SuppressWarnings("unchecked")
+		SQL<RowClass> sql = new SQL<RowClass>((RowClass)this, conn)) {
 			if (this.inDb) {
 				sql.delete();
 			} else {

@@ -39,6 +39,12 @@ public class Test2 {
 		empRow.delete(getConn());
 		
 		empRow = EmployeeRow.getById(EmployeeRow.class, empRow.id, getConn());
+		if (empRow != null) {
+			log.error("Delete failed. Got row id = " + empRow.id);
+		} else {
+			log.info("Delete succeeded.");
+		}
+		empRow = EmployeeRow.getById(EmployeeRow.class, 222, getConn());
 		log.info("got row id = " + empRow.id);
 	}
 
