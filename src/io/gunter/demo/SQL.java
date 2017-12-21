@@ -79,7 +79,7 @@ import lombok.extern.slf4j.Slf4j;
  *            See example class UserRow above.
  */
 @Slf4j(topic = "SQL")
-public class SQL<RowClass extends Row> {
+public class SQL<RowClass extends Row> implements AutoCloseable {
 
 	@Retention(RetentionPolicy.RUNTIME)
 	public @interface Order {
@@ -106,6 +106,10 @@ public class SQL<RowClass extends Row> {
 	private String[] resultColumns = null;
 	private Map<Integer, Field> columnToField = new HashMap<>();
 	private Field primaryKeyField = null;
+	private String primaryKeyCamelName = null;
+	private String primaryKeyUnderscoreName = null;
+	// TODO remove?  would hold old value if XxxRow.id was set to another value
+	//private Object primaryKeyValue = null;
 	private String tableName = null;
 
 	/**
@@ -161,8 +165,25 @@ public class SQL<RowClass extends Row> {
 			and = " AND ";
 		}
 		rowQuerySQL = query.toString();
-		
+
 		return (SQL<RowClass>) this;
+	}
+	
+	public String getPkCamelName() {
+		return primaryKeyCamelName;
+	}
+	
+	public String getPkUnderscoreName() {
+		return primaryKeyUnderscoreName;
+	}
+	
+	public Object getPkValue() {
+		try {
+			return primaryKeyField.get(rowClassObj);
+		} catch (IllegalArgumentException | IllegalAccessException e) {
+			log.error("Cannot access value of primaryKeyField");
+			return null;
+		}
 	}
 
 	/**
@@ -262,6 +283,9 @@ public class SQL<RowClass extends Row> {
 				if (colIndex != -1) {
 					if (field.getName().equals("id") || field.isAnnotationPresent(PK.class)) {
 						primaryKeyField = field;
+						primaryKeyCamelName = underscoreToCamel(field.getName(), false);
+						primaryKeyUnderscoreName = camelToUnderscore(field.getName());
+						//primaryKeyValue = field.get(rowClassObj);
 					}
 				}
 			}
@@ -545,7 +569,7 @@ public class SQL<RowClass extends Row> {
 			close();
 		}
 	}
-
+	
 	public void update() throws IllegalArgumentException, IllegalAccessException, SQLException {
 		update(this.rowClassObj);
 	}
@@ -590,6 +614,36 @@ public class SQL<RowClass extends Row> {
 			close();
 		}
 	}
+	
+	public void delete() throws IllegalArgumentException, IllegalAccessException, SQLException {
+		delete(this.rowClassObj);
+	}
+
+	public void delete(RowClass row) throws IllegalArgumentException, IllegalAccessException, SQLException {
+		if (row == null) {
+			throw new IllegalArgumentException("Cannot delete null row object.");
+		}
+		if (tableName == null) {
+			// getQueryColumnNames(rows.get(0).getQuery());
+			getQueryColumnNames(getRowQuerySQL());
+			filterFields();
+		}
+		StringBuilder query = new StringBuilder("delete from ");
+		query.append(tableName);
+		query.append(" where ");
+		query.append(primaryKeyUnderscoreName);
+		query.append(" = ?");
+		log.info("Delete query = " + query);
+		try (PreparedStatement ps = conn.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS)) {
+			ps.setObject(1, primaryKeyField.get(row));
+			if (1 != ps.executeUpdate()) {
+				throw new SQLException("Failed:  " + query.toString());
+			}
+			row.setInDb(false);
+		} finally {
+			close();
+		}
+	}
 
 	private String getRowQuerySQL() {
 		if (rowQuerySQL != null) {
@@ -598,7 +652,7 @@ public class SQL<RowClass extends Row> {
 
 		tableName = camelToUnderscore(rowClass.getSimpleName());
 
-//		Select select = rowClassObj.getClass().getAnnotation(Select.class);
+		// Select select = rowClassObj.getClass().getAnnotation(Select.class);
 		Select select = rowClass.getAnnotation(Select.class);
 		/*
 		 * if (select == null) { throw new IllegalArgumentException(

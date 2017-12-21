@@ -36,8 +36,9 @@ public class Test2 {
 		log.info("id=" + empRow.id + ", rowNum=" + empRow.rowNum + ", fromDb=" + empRow.inDb());
 		empRow.firstName = "uf1";
 		empRow.save(getConn());
+		empRow.delete(getConn());
 		
-		empRow = EmployeeRow.getById(EmployeeRow.class, 111, getConn());
+		empRow = EmployeeRow.getById(EmployeeRow.class, empRow.id, getConn());
 		log.info("got row id = " + empRow.id);
 	}
 
