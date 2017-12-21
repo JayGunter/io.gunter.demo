@@ -51,6 +51,11 @@ public abstract class Row {
 		}
 
 	}
+	
+	public static <RowClass extends Row> RowClass getById(Class rowClazz, Integer id, Connection conn) throws InstantiationException, IllegalAccessException, SQLException  {
+		SQL<RowClass> sql = new SQL<>(rowClazz, conn);
+		return (RowClass) sql.getById(rowClazz, id, conn);
+	}
 
 //	public static String getQuery() { return null; }
 }

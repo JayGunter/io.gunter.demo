@@ -148,6 +148,8 @@ public class SQL<RowClass extends Row> {
 			} else {
 				if (obj == null) {
 					query.append(" IS NULL ");
+				} else {
+					query.append(" = ");
 				}
 				String s = obj.toString();
 				if (obj instanceof String) {
@@ -158,6 +160,8 @@ public class SQL<RowClass extends Row> {
 			isKey = !isKey;
 			and = " AND ";
 		}
+		rowQuerySQL = query.toString();
+		
 		return (SQL<RowClass>) this;
 	}
 
@@ -195,6 +199,23 @@ public class SQL<RowClass extends Row> {
 	public static <RowClass extends Row> void run(Class<RowClass> clazz, Connection conn, Consumer<RowClass> action)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		query(clazz, conn).forEach(action);
+	}
+
+	public static <RowClass extends Row> RowClass getById(Class<RowClass> clazz, Object id, Connection conn)
+			throws InstantiationException, IllegalAccessException, SQLException {
+		SQL<RowClass> sql = new SQL<>(clazz, conn);
+		sql.getQueryColumnNames(sql.getRowQuerySQL());
+		sql.filterFields();
+		sql.where(camelToUnderscore(sql.primaryKeyField.getName()), id);
+		List<RowClass> rows = sql.allResults();
+		switch (rows.size()) {
+		case 0:
+			return null;
+		case 1:
+			return rows.get(0);
+		default:
+			throw new IllegalArgumentException("Found " + rows.size() + " rows for id " + id);
+		}
 	}
 
 	/**
@@ -266,7 +287,7 @@ public class SQL<RowClass extends Row> {
 	 */
 	@SuppressWarnings("unchecked")
 	public List<RowClass> allResults() throws SQLException, InstantiationException, IllegalAccessException {
-		return allResults(null);
+		return allResults(getRowQuerySQL());
 	}
 
 	/**
@@ -414,7 +435,8 @@ public class SQL<RowClass extends Row> {
 		return getRow();
 	}
 
-	public <RowClass extends Row> RowClass getRow() throws SQLException, InstantiationException, IllegalAccessException {
+	public <RowClass extends Row> RowClass getRow()
+			throws SQLException, InstantiationException, IllegalAccessException {
 		if (!rs.next()) {
 			return null;
 		}
@@ -491,23 +513,23 @@ public class SQL<RowClass extends Row> {
 			int rowCount = 0;
 			int failedCount = 0;
 			int[] rowInsertCounts = ps.executeBatch();
-			//log.info("ric.len="+rowInsertCounts.length);
+			// log.info("ric.len="+rowInsertCounts.length);
 			ResultSet generatedIds = ps.getGeneratedKeys();
 			for (int oneOnSuccess : rowInsertCounts) {
 				if (rowCount == 10) {
 					failedRows.append("...");
 				}
-				//log.info("rowCount="+rowCount+", " + oneOnSuccess);
+				// log.info("rowCount="+rowCount+", " + oneOnSuccess);
 				if (oneOnSuccess != 1) {
 					failedCount++;
 					failedRows.append(" ");
 					failedRows.append(rowCount);
 				} else {
-					//log.info("next...");
+					// log.info("next...");
 					if (generatedIds.next()) {
 						int id = generatedIds.getInt(1);
-						//log.info("id="+ id);
-						//log.info("pkf.name="+primaryKeyField.getName());
+						// log.info("id="+ id);
+						// log.info("pkf.name="+primaryKeyField.getName());
 						RowClass row = rows.get(rowCount);
 						primaryKeyField.set(row, id);
 						row.setInDb(true);
@@ -562,8 +584,7 @@ public class SQL<RowClass extends Row> {
 			log.info("cc=" + colCount);
 			ps.setObject(colCount, primaryKeyField.get(row));
 			if (1 != ps.executeUpdate()) {
-				throw new SQLException(
-					"Failed:  " + query.toString());
+				throw new SQLException("Failed:  " + query.toString());
 			}
 		} finally {
 			close();
@@ -577,13 +598,13 @@ public class SQL<RowClass extends Row> {
 
 		tableName = camelToUnderscore(rowClass.getSimpleName());
 
-		Select select = rowClassObj.getClass().getAnnotation(Select.class);
+//		Select select = rowClassObj.getClass().getAnnotation(Select.class);
+		Select select = rowClass.getAnnotation(Select.class);
 		/*
-		if (select == null) {
-			throw new IllegalArgumentException(
-				"SQL.allResults() requires XxxRow class have a @Select(query=\"select ...\")");
-		}
-		*/
+		 * if (select == null) { throw new IllegalArgumentException(
+		 * "SQL.allResults() requires XxxRow class have a @Select(query=\"select ...\")"
+		 * ); }
+		 */
 		if (select == null) {
 			StringBuilder sb = new StringBuilder("select ");
 			String comma = "";
@@ -620,9 +641,12 @@ public class SQL<RowClass extends Row> {
 	}
 
 	/**
-	 * Convert userId to user_id, AbcDEFghi to abc_defghi.  Replace all lU with l_u.
-	 * Also strips trailing "Row" to convert class name UserRow to table name user.
-	 * @param camel-case string
+	 * Convert userId to user_id, AbcDEFghi to abc_defghi. Replace all lU with
+	 * l_u. Also strips trailing "Row" to convert class name UserRow to table
+	 * name user.
+	 * 
+	 * @param camel-case
+	 *            string
 	 * @return string with camel transitions replaced by underscores
 	 */
 	public static String camelToUnderscore(String camel) {
@@ -631,11 +655,13 @@ public class SQL<RowClass extends Row> {
 
 	/**
 	 * Convert user_id to userId.
-	 * @param und string
+	 * 
+	 * @param und
+	 *            string
 	 * @return string with underscores replaced by camel back.
 	 */
 	public static String underscoreToCamel(String und, boolean isClassName) {
-		//return und.replaceAll("(.)_(.)", "$1$2");
+		// return und.replaceAll("(.)_(.)", "$1$2");
 		StringBuilder sb = new StringBuilder();
 		boolean isFirstWord = true;
 		for (String word : und.toLowerCase().split("_")) {
