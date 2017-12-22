@@ -1,5 +1,7 @@
 package io.gunter.demo;
 
+import static java.lang.System.out;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -95,12 +97,13 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	public @interface PK {
 	}
 
-//	private Class<? extends Row> rowClass = null;
+	// private Class<? extends Row> rowClass = null;
 	private Class<? extends Row<?>> rowClass = null;
 	private RowClass rowClassObj = null;
 	private Connection conn = null;
-	private String rowQuerySQL = null;
+	private PreparedStatement ps = null;
 	private ResultSet rs = null;
+	private String rowQuerySQL = null;
 	private boolean hitDb = false;
 	private Field rowNumField = null;
 	private int rowCount = 0;
@@ -117,31 +120,107 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	 * Create a SQL object. Use SQL.query() to return objects of type
 	 * <RowClass>. - the database query contained in the 'query' field of
 	 * rowClassObj. - a specified SQL query, or - a PreparedStatement.
+	 * 
+	 * @throws IllegalAccessException
+	 * @throws IllegalArgumentException
 	 */
-//	public SQL(Row<RowClass> rowClassObj, Connection conn) {
+	// public SQL(Row<RowClass> rowClassObj, Connection conn) {
 	@SuppressWarnings("unchecked")
-	public SQL(RowClass rowClassObj, Connection conn) {
+	public SQL(RowClass rowClassObj, Connection conn) throws IllegalArgumentException, IllegalAccessException {
 		this.rowClassObj = (RowClass) rowClassObj;
 		this.rowClass = (Class<? extends Row<?>>) rowClassObj.getClass();
 		this.conn = conn;
+		log.info("@@@@@@@@@@@@@@@@");
+		this.getQueryColumnNames(getRowQuerySQL());
+		this.filterFields();
 	}
 
-	public SQL(Class<RowClass> clazz, Connection conn) {
+	public SQL(Class<RowClass> clazz, Connection conn) throws IllegalArgumentException, IllegalAccessException {
 		this.rowClass = clazz;
 		this.conn = conn;
+		log.info("@@@@@@@@@@@@@@@@");
+		this.getQueryColumnNames(getRowQuerySQL());
+		this.filterFields();
 	}
 
-	public static <RowClass extends Row<?>> SQL<RowClass> create(Class<RowClass> clazz, Connection conn) {
+	public static <RowClass extends Row<?>> SQL<RowClass> create(Class<RowClass> clazz, Connection conn)
+			throws IllegalArgumentException, IllegalAccessException {
 		return new SQL<RowClass>(clazz, conn);
 	}
 
 	public static <RowClass extends Row<?>> SQL<RowClass> query(Class<RowClass> clazz, Connection conn)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		return create(clazz, conn);
-//		RowClass row = (RowClass) clazz.newInstance();
-//		return new SQL<RowClass>(row, conn);
+		// RowClass row = (RowClass) clazz.newInstance();
+		// return new SQL<RowClass>(row, conn);
 	}
 
+	/**
+	 * Supplies values for the WHERE clause used by this SQL object.
+	 * 
+	 * For example, <code>
+	 * &#64;Select(query="select first_name from Person where first_name = ?")
+	 * class PersonRow extends Row {
+	 * 		public String firstName;
+	 * 		public void action() {
+	 * 			System.out.println("row#" + rowNum + ": fname=" + fname + ", count: " + count);
+	 * 		}
+	 * }
+	 * SQL.query(MyRow.class, conn).whereValues("Jay").run();
+	 * </code>
+	 * 
+	 * NOTE: SQL syntax in WHERE clauses require a test for a NULL column value
+	 * be expressed as WHERE COLUMN_X IS NULL. The where method handles this
+	 * case, but the whereValues method will not.
+	 * 
+	 * NOTE: If your SQL query does not contain a WHERE clause, do not use this
+	 * method. Use the where method instead.
+	 * 
+	 * @param values
+	 *            A varargs list of objects to be used as values in the WHERE
+	 *            clause.
+	 * @return this SQL object (to allow chaining to the non-static run method)
+	 * @throws SQLException
+	 * @throws IllegalArgumentException
+	 * @throws IllegalAccessException
+	 */
+	public SQL<RowClass> whereValues(Object... values)
+			throws SQLException, IllegalArgumentException, IllegalAccessException {
+		String sql = getRowQuerySQL();
+		ps = conn.prepareStatement(sql);
+		int colCount = 1;
+		for (Object obj : values) {
+			ps.setObject(colCount++, obj);
+		}
+
+		return (SQL<RowClass>) this;
+	}
+
+	/**
+	 * Appends a WHERE clause to the SQL query (either passed to the SQL.query()
+	 * method or specified via an @Select annotation on the XxxRow class that
+	 * extends the base Row class.
+	 * 
+	 * For example, <code>
+	 * &#64;Select(query="select first_name from Person")
+	 * class PersonRow extends Row {
+	 * 		public String firstName;
+	 * 		public void action() {
+	 * 			System.out.println("row#" + rowNum + ": fname=" + fname + ", count: " + count);
+	 * 		}
+	 * }
+	 * SQL.query(MyRow.class, conn).where("firstName", "Jay").run();
+	 * </code>
+	 * 
+	 * NOTE: If your SQL query already contains a WHERE clause, do not use this
+	 * method. Use the whereValues method instead.
+	 * 
+	 * @param keysAndValues
+	 *            A varargs list of alternating key, value, key, value, ....
+	 *            with each key being a String and the following value being a
+	 *            value Object.
+	 * @return this SQL object (to allow chaining to the non-static run method)
+	 */
 	public SQL<RowClass> where(Object... keysAndValues) {
 		String sql = getRowQuerySQL();
 		StringBuilder query = new StringBuilder(sql);
@@ -193,6 +272,24 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		}
 	}
 
+	public void run() throws InstantiationException, IllegalAccessException, NoSuchMethodException, SecurityException,
+			SQLException {
+		Method method = rowClass.getMethod("action");
+		try (SQL<RowClass> sql = this) {
+			sql.forEach((RowClass rc) -> {
+				try {
+					method.invoke(rc);
+				} catch (IllegalAccessException e) {
+					e.printStackTrace();
+				} catch (IllegalArgumentException e) {
+					e.printStackTrace();
+				} catch (InvocationTargetException e) {
+					e.printStackTrace();
+				}
+			});
+		}
+	}
+
 	/**
 	 * 
 	 * @param clazz
@@ -205,8 +302,9 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	 * @throws NoSuchMethodException
 	 * @throws SecurityException
 	 */
-	public static <RowClass extends Row<?>> void run(Class<RowClass> clazz, Connection conn) throws InstantiationException,
-			IllegalAccessException, SQLException, NoSuchMethodException, SecurityException {
+	public static <RowClass extends Row<?>> void run(Class<RowClass> clazz, Connection conn)
+			throws InstantiationException, IllegalAccessException, SQLException, NoSuchMethodException,
+			SecurityException {
 		RowClass row = (RowClass) clazz.newInstance();
 		Method method = row.getClass().getMethod("action");
 		// run(clazz, conn, method);
@@ -307,6 +405,35 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	 * Runs specified query. Returns a List of all row objects generated.
 	 */
 	@SuppressWarnings("unchecked")
+	public List<RowClass> allResults(PreparedStatement ps)
+			throws SQLException, InstantiationException, IllegalAccessException {
+		List<RowClass> rowList = new LinkedList<>();
+		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		RowClass row = (RowClass) rowClass.newInstance();
+		while (null != (row = queryStatement(ps))) {
+			rowList.add(row);
+		}
+		return rowList;
+	}
+
+	/**
+	 * Runs specified query. Returns a List of all row objects generated.
+	 */
+	@SuppressWarnings("unchecked")
+	public List<RowClass> allResultsStatement() throws SQLException, InstantiationException, IllegalAccessException {
+		List<RowClass> rowList = new LinkedList<>();
+		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
+		RowClass row = (RowClass) rowClass.newInstance();
+		while (null != (row = queryStatement(ps))) {
+			rowList.add(row);
+		}
+		return rowList;
+	}
+
+	/**
+	 * Runs specified query. Returns a List of all row objects generated.
+	 */
+	@SuppressWarnings("unchecked")
 	public List<RowClass> allResults(String sql) throws SQLException, InstantiationException, IllegalAccessException {
 		List<RowClass> rowList = new LinkedList<>();
 		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
@@ -321,6 +448,9 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	 * Runs RowClass query. Returns a List of all row objects generated.
 	 */
 	public List<RowClass> allResults() throws SQLException, InstantiationException, IllegalAccessException {
+		if (ps != null) {
+			return allResultsStatement();
+		}
 		return allResults(getRowQuerySQL());
 	}
 

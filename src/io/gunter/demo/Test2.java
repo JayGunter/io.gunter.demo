@@ -27,8 +27,10 @@ public class Test2 {
 	 * @throws IllegalAccessException 
 	 * @throws IllegalArgumentException 
 	 * @throws InstantiationException 
+	 * @throws SecurityException 
+	 * @throws NoSuchMethodException 
 	 */
-	public static void main(String[] args) throws IllegalArgumentException, IllegalAccessException, SQLException, InstantiationException {
+	public static void main(String[] args) throws IllegalArgumentException, IllegalAccessException, SQLException, InstantiationException, NoSuchMethodException, SecurityException {
 		EmployeeRow empRow = new EmployeeRow();
 		empRow.firstName = "f1";
 		empRow.lastName = "l1";
@@ -46,6 +48,11 @@ public class Test2 {
 		}
 		empRow = EmployeeRow.getById(EmployeeRow.class, 222, getConn());
 		log.info("got row id = " + empRow.id);
+		
+		log.info("-------------");
+		//SQL.run(EmpFnameCounts.class, getConn()); 
+		//EmpFnameCounts fnameCounts = new EmpFnameCounts fnameCounts = new 
+		SQL.query(EmpFnameCounts.class, getConn()).whereValues(233).run(); 
 	}
 
 }
