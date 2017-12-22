@@ -405,12 +405,11 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	 * Runs specified query. Returns a List of all row objects generated.
 	 */
 	@SuppressWarnings("unchecked")
-	public List<RowClass> allResults(PreparedStatement ps)
+	public List<RowClass> allResults(PreparedStatement stmt)
 			throws SQLException, InstantiationException, IllegalAccessException {
 		List<RowClass> rowList = new LinkedList<>();
-		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
 		RowClass row = (RowClass) rowClass.newInstance();
-		while (null != (row = queryStatement(ps))) {
+		while (null != (row = queryStatement(stmt))) {
 			rowList.add(row);
 		}
 		return rowList;
@@ -419,15 +418,16 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	/**
 	 * Runs specified query. Returns a List of all row objects generated.
 	 */
-	@SuppressWarnings("unchecked")
 	public List<RowClass> allResultsStatement() throws SQLException, InstantiationException, IllegalAccessException {
+		return allResults(ps);
+		/*
 		List<RowClass> rowList = new LinkedList<>();
-		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
 		RowClass row = (RowClass) rowClass.newInstance();
 		while (null != (row = queryStatement(ps))) {
 			rowList.add(row);
 		}
 		return rowList;
+		*/
 	}
 
 	/**
@@ -577,9 +577,12 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	 * The first call performs the query (creating the PreparedStatement if none
 	 * was passed). Every call returns a result row.
 	 */
-	private RowClass doQuery(PreparedStatement ps, String sql)
+	private RowClass doQuery(PreparedStatement stmt, String sql)
 			throws SQLException, InstantiationException, IllegalAccessException, SecurityException {
 		if (!hitDb) {
+			if (stmt != null) {
+				ps = stmt;
+			}
 			if (ps == null) {
 				if (sql == null) {
 					sql = getRowQuerySQL();
