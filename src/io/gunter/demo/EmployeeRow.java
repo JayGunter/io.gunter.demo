@@ -14,9 +14,11 @@ package io.gunter.demo;
  * @author jaygunter
  *
  */
-public class EmployeeRow extends Row {
+public class EmployeeRow extends Row<EmployeeRow> {
 	public Integer id;
 	public String firstName;
 	public String lastName;
 	public Integer mgrId;
+	@SQL.Version
+	public Integer version;
 }

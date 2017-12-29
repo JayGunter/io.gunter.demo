@@ -1,7 +1,5 @@
 package io.gunter.demo;
 
-import static java.lang.System.out;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -13,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -97,6 +96,11 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	public @interface PK {
 	}
 
+	@Retention(RetentionPolicy.RUNTIME)
+	public @interface Version {
+		boolean dbGenerated() default false;
+	}
+
 	// private Class<? extends Row> rowClass = null;
 	private Class<? extends Row<?>> rowClass = null;
 	private RowClass rowClassObj = null;
@@ -112,6 +116,9 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	private Field primaryKeyField = null;
 	private String primaryKeyCamelName = null;
 	private String primaryKeyUnderscoreName = null;
+	private Field versionKeyField = null;
+	private String versionKeyCamelName = null;
+	private String versionKeyUnderscoreName = null;
 	// TODO remove? would hold old value if XxxRow.id was set to another value
 	// private Object primaryKeyValue = null;
 	private String tableName = null;
@@ -187,13 +194,25 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	public SQL<RowClass> whereValues(Object... values)
 			throws SQLException, IllegalArgumentException, IllegalAccessException {
 		String sql = getRowQuerySQL();
+		/*
 		ps = conn.prepareStatement(sql);
 		int colCount = 1;
 		for (Object obj : values) {
 			ps.setObject(colCount++, obj);
 		}
+		*/
+		ps = buildStmt(sql, values);
 
 		return (SQL<RowClass>) this;
+	}
+	
+	private PreparedStatement buildStmt(String sql, Object... whereValues) throws SQLException {
+		PreparedStatement ps = conn.prepareStatement(sql);
+		int colCount = 1;
+		for (Object obj : whereValues) {
+			ps.setObject(colCount++, obj);
+		}
+		return ps;
 	}
 
 	/**
@@ -395,6 +414,10 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 						primaryKeyCamelName = underscoreToCamel(field.getName(), false);
 						primaryKeyUnderscoreName = camelToUnderscore(field.getName());
 						// primaryKeyValue = field.get(rowClassObj);
+					} else if (field.isAnnotationPresent(Version.class)) {
+						versionKeyField = field;
+						versionKeyCamelName = underscoreToCamel(field.getName(), false);
+						versionKeyUnderscoreName = camelToUnderscore(field.getName());
 					}
 				}
 			}
@@ -421,13 +444,10 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	public List<RowClass> allResultsStatement() throws SQLException, InstantiationException, IllegalAccessException {
 		return allResults(ps);
 		/*
-		List<RowClass> rowList = new LinkedList<>();
-		RowClass row = (RowClass) rowClass.newInstance();
-		while (null != (row = queryStatement(ps))) {
-			rowList.add(row);
-		}
-		return rowList;
-		*/
+		 * List<RowClass> rowList = new LinkedList<>(); RowClass row =
+		 * (RowClass) rowClass.newInstance(); while (null != (row =
+		 * queryStatement(ps))) { rowList.add(row); } return rowList;
+		 */
 	}
 
 	/**
@@ -542,14 +562,36 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	}
 
 	/*
+	 * TODO remove?
 	 * Use this query method when ps.setXXX is used to set where-clause values.
 	 */
-	public RowClass queryStatement(PreparedStatement ps)
+	public RowClass queryStatement(PreparedStatement stmt)
 			throws SQLException, InstantiationException, IllegalAccessException {
-		if (ps == null) {
+		if (stmt == null) {
 			throw new IllegalArgumentException("PreparedStatement is null.");
 		}
-		return doQuery(ps, null);
+		return doQuery(stmt, null);
+	}
+
+	/**
+	 * TODO fix inconsistency: other query methods return single row for each call.
+	 * Use this query method for SQL with parameters.
+	 * @whereClause examples: "x = 1", "x = ?"
+	 * @whereValues values for question marks in whereClause
+	 * @return List of all RowClass objects produced by the query.
+	 */
+	public List<RowClass> query(String whereClause, Object... whereValues) throws SQLException, InstantiationException, IllegalAccessException {
+		if (! "where".equals(whereClause.trim().toLowerCase().split(" ")[0])) {
+			whereClause = "where " + whereClause;
+		}
+		String sql = getRowQuerySQL() + " " + whereClause;
+		ps = buildStmt(sql, whereValues);
+		List<RowClass> rowList = new LinkedList<>();
+		RowClass row = null;
+		while (null != (row = queryStatement(ps))) {
+			rowList.add(row);
+		}
+		return rowList;
 	}
 
 	/*
@@ -670,8 +712,25 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 			for (RowClass row : rows) {
 				for (Integer colIndex : columnToField.keySet()) {
 					Field field = columnToField.get(colIndex);
-					log.info("field name = " + field.getName() + ", value = " + field.get(row));
-					ps.setObject(colIndex, field.get(row));
+					Object value = field.get(row);
+					log.info("field name = " + field.getName() + ", value = " + value);
+					Version version = field.getAnnotation(Version.class);
+					if (version != null && !version.dbGenerated()) {
+						if (field.getType() == Integer.class) {
+							value = value != null ? value : 0;
+							field.set(row, value);
+							ps.setObject(colIndex, value);
+						} else if (field.getType() == Date.class) {
+							value = value != null ? value : new Date();
+							field.set(row, value);
+							ps.setObject(colIndex, value);
+						} else {
+							throw new IllegalArgumentException(
+									rowClass.getName() + " version column is not of type Integer or java.util.Date");
+						}
+					} else {
+						ps.setObject(colIndex, value);
+					}
 				}
 				ps.addBatch();
 			}
@@ -744,7 +803,20 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 			for (Integer colIndex : columnToField.keySet()) {
 				Field field = columnToField.get(colIndex);
 				log.info("ci=" + colIndex + ", field name = " + field.getName() + ", value = " + field.get(row));
-				ps.setObject(colIndex, field.get(row));
+				Version version = field.getAnnotation(Version.class);
+				if (version != null && !version.dbGenerated()) {
+					if (field.getType() == Integer.class) {
+						Integer intVersion = (Integer) field.get(row);
+						ps.setObject(colIndex, intVersion + 1);
+					} else if (field.getType() == Date.class) {
+						ps.setObject(colIndex, new Date());
+					} else {
+						throw new IllegalArgumentException(
+								rowClass.getName() + " version column is not of type Integer or java.util.Date");
+					}
+				} else {
+					ps.setObject(colIndex, field.get(row));
+				}
 				colCount++;
 			}
 			log.info("cc=" + colCount);

@@ -2,6 +2,7 @@ package io.gunter.demo;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.stream.Stream;
 
 public abstract class Row<RowClass extends Row<?>> {
@@ -56,6 +57,14 @@ public abstract class Row<RowClass extends Row<?>> {
 			return (RowClass) sql.getById(rowClazz, id, conn);
 		}
 		*/
+	}
+	
+	public static <RowClass extends Row<?>> List<RowClass> query(Connection conn, Class<RowClass> clazz, String whereClause, Object... whereValues) throws IllegalArgumentException, IllegalAccessException, SQLException, InstantiationException {
+		try (SQL<RowClass> sql = new SQL<RowClass>(clazz, conn)) {
+			return sql.query(whereClause, whereValues);
+		} finally {
+			conn.close();
+		}
 	}
 
 	public void save(Connection conn) throws IllegalArgumentException, IllegalAccessException, SQLException {
