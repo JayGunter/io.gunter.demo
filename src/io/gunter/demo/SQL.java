@@ -101,27 +101,55 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		boolean dbGenerated() default false;
 	}
 
-	// private Class<? extends Row> rowClass = null;
+	/*
+	 * TODO investigate integrating with JCS
+	 * 
+	 * @Retention(RetentionPolicy.RUNTIME) public @interface Cache { int
+	 * maxRows() default 0; }
+	 * 
+	 * public static class RowCache<RowClass> { int maxRows = 0; HashMap<Object,
+	 * RowClass> cache = new HashMap<>(); } private HashMap<Class,
+	 * HashMap<Object, RowClass>> rowCache = new HashMap<>();
+	 */
+
+	private static class RowClassInfo {
+		String[] resultColumns = null;
+		Map<Integer, Field> columnToField = new HashMap<>();
+		private Field rowNumField = null;
+		Field primaryKeyField = null;
+		String primaryKeyCamelName = null;
+		String primaryKeyUnderscoreName = null;
+		Field versionKeyField = null;
+		String versionKeyCamelName = null;
+		String versionKeyUnderscoreName = null;
+		// TODO remove? would hold old value if XxxRow.id was set to another
+		// value
+		// private Object primaryKeyValue = null;
+		String tableName = null;
+		String querySQL = null;
+	}
+	private String rowQuerySQL = null;
+
+	private RowClassInfo rowClassInfo = null;
+	private static HashMap<Class<? extends Row<?>>, RowClassInfo> rowClassInfoCache = new HashMap<>();
+
 	private Class<? extends Row<?>> rowClass = null;
 	private RowClass rowClassObj = null;
 	private Connection conn = null;
 	private PreparedStatement ps = null;
 	private ResultSet rs = null;
-	private String rowQuerySQL = null;
 	private boolean hitDb = false;
-	private Field rowNumField = null;
 	private int rowCount = 0;
-	private String[] resultColumns = null;
-	private Map<Integer, Field> columnToField = new HashMap<>();
-	private Field primaryKeyField = null;
-	private String primaryKeyCamelName = null;
-	private String primaryKeyUnderscoreName = null;
-	private Field versionKeyField = null;
-	private String versionKeyCamelName = null;
-	private String versionKeyUnderscoreName = null;
-	// TODO remove? would hold old value if XxxRow.id was set to another value
-	// private Object primaryKeyValue = null;
-	private String tableName = null;
+	/*
+	 * private String[] resultColumns = null; private Map<Integer, Field>
+	 * columnToField = new HashMap<>(); private Field primaryKeyField = null;
+	 * private String primaryKeyCamelName = null; private String
+	 * primaryKeyUnderscoreName = null; private Field versionKeyField = null;
+	 * private String versionKeyCamelName = null; private String
+	 * versionKeyUnderscoreName = null; // TODO remove? would hold old value if
+	 * XxxRow.id was set to another value // private Object primaryKeyValue =
+	 * null; private String tableName = null;
+	 */
 
 	/**
 	 * Create a SQL object. Use SQL.query() to return objects of type
@@ -137,17 +165,23 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		this.rowClassObj = (RowClass) rowClassObj;
 		this.rowClass = (Class<? extends Row<?>>) rowClassObj.getClass();
 		this.conn = conn;
-		log.info("@@@@@@@@@@@@@@@@");
-		this.getQueryColumnNames(getRowQuerySQL());
-		this.filterFields();
+		log.info("ctor rowClassObj");
+		rowClassInfo = rowClassInfoCache.get(rowClass);
+		if (rowClassInfo == null) {
+			this.getQueryColumnNames(getRowQuerySQL());
+			this.filterFields();
+		}
 	}
 
 	public SQL(Class<RowClass> clazz, Connection conn) throws IllegalArgumentException, IllegalAccessException {
 		this.rowClass = clazz;
 		this.conn = conn;
-		log.info("@@@@@@@@@@@@@@@@");
-		this.getQueryColumnNames(getRowQuerySQL());
-		this.filterFields();
+		log.info("ctor rowClass");
+		rowClassInfo = rowClassInfoCache.get(rowClass);
+		if (rowClassInfo == null) {
+			this.getQueryColumnNames(getRowQuerySQL());
+			this.filterFields();
+		}
 	}
 
 	public static <RowClass extends Row<?>> SQL<RowClass> create(Class<RowClass> clazz, Connection conn)
@@ -195,17 +229,14 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 			throws SQLException, IllegalArgumentException, IllegalAccessException {
 		String sql = getRowQuerySQL();
 		/*
-		ps = conn.prepareStatement(sql);
-		int colCount = 1;
-		for (Object obj : values) {
-			ps.setObject(colCount++, obj);
-		}
-		*/
+		 * ps = conn.prepareStatement(sql); int colCount = 1; for (Object obj :
+		 * values) { ps.setObject(colCount++, obj); }
+		 */
 		ps = buildStmt(sql, values);
 
 		return (SQL<RowClass>) this;
 	}
-	
+
 	private PreparedStatement buildStmt(String sql, Object... whereValues) throws SQLException {
 		PreparedStatement ps = conn.prepareStatement(sql);
 		int colCount = 1;
@@ -275,16 +306,16 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	}
 
 	public String getPkCamelName() {
-		return primaryKeyCamelName;
+		return rowClassInfo.primaryKeyCamelName;
 	}
 
 	public String getPkUnderscoreName() {
-		return primaryKeyUnderscoreName;
+		return rowClassInfo.primaryKeyUnderscoreName;
 	}
 
 	public Object getPkValue() {
 		try {
-			return primaryKeyField.get(rowClassObj);
+			return rowClassInfo.primaryKeyField.get(rowClassObj);
 		} catch (IllegalArgumentException | IllegalAccessException e) {
 			log.error("Cannot access value of primaryKeyField");
 			return null;
@@ -352,9 +383,9 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	public static <RowClass extends Row<?>> RowClass getById(Class<RowClass> clazz, Object id, Connection conn)
 			throws InstantiationException, IllegalAccessException, SQLException {
 		try (SQL<RowClass> sql = new SQL<>(clazz, conn)) {
-			sql.getQueryColumnNames(sql.getRowQuerySQL());
-			sql.filterFields();
-			sql.where(camelToUnderscore(sql.primaryKeyField.getName()), id);
+			//sql.getQueryColumnNames(sql.getRowQuerySQL());
+			//sql.filterFields();
+			sql.where(camelToUnderscore(sql.rowClassInfo.primaryKeyField.getName()), id);
 			List<RowClass> rows = sql.allResults();
 			switch (rows.size()) {
 			case 0:
@@ -379,16 +410,16 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		for (Field field : rowClass.getFields()) {
 			log.debug("field name = " + field.getName());
 			if (field.getName().equals("rowNum")) {
-				this.rowNumField = field;
+				rowClassInfo.rowNumField = field;
 			} else {
 				int colIndex = -1;
 				Order order = field.getAnnotation(Order.class);
 				if (order != null) {
 					// colIndex = order.value();
-					columnToField.put(order.value(), field);
+					rowClassInfo.columnToField.put(order.value(), field);
 				} else {
 					int j = 1;
-					for (String resultColumn : resultColumns) {
+					for (String resultColumn : rowClassInfo.resultColumns) {
 						int index = resultColumn.indexOf(field.getName());
 						log.debug("resultColumn = " + resultColumn + ", colIndex = " + colIndex + ", index = " + index);
 						if (index != -1 && colIndex == -1) {
@@ -406,18 +437,18 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 						throw new IllegalArgumentException(
 								"Cannot match field " + field.getName() + " to a query result column.");
 					}
-					columnToField.put(colIndex, field);
+					rowClassInfo.columnToField.put(colIndex, field);
 				}
 				if (colIndex != -1) {
 					if (field.getName().equals("id") || field.isAnnotationPresent(PK.class)) {
-						primaryKeyField = field;
-						primaryKeyCamelName = underscoreToCamel(field.getName(), false);
-						primaryKeyUnderscoreName = camelToUnderscore(field.getName());
+						rowClassInfo.primaryKeyField = field;
+						rowClassInfo.primaryKeyCamelName = underscoreToCamel(field.getName(), false);
+						rowClassInfo.primaryKeyUnderscoreName = camelToUnderscore(field.getName());
 						// primaryKeyValue = field.get(rowClassObj);
 					} else if (field.isAnnotationPresent(Version.class)) {
-						versionKeyField = field;
-						versionKeyCamelName = underscoreToCamel(field.getName(), false);
-						versionKeyUnderscoreName = camelToUnderscore(field.getName());
+						rowClassInfo.versionKeyField = field;
+						rowClassInfo.versionKeyCamelName = underscoreToCamel(field.getName(), false);
+						rowClassInfo.versionKeyUnderscoreName = camelToUnderscore(field.getName());
 					}
 				}
 			}
@@ -502,11 +533,11 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 			throw new IllegalArgumentException("No FROM found in query: " + sql);
 		}
 		StringTokenizer st = new StringTokenizer(lowerCaseSql.substring(fromIndex + 6).trim());
-		tableName = st.nextToken();
-		if (!Character.isLetter(tableName.charAt(0))) {
-			tableName = null;
+		rowClassInfo.tableName = st.nextToken();
+		if (!Character.isLetter(rowClassInfo.tableName.charAt(0))) {
+			rowClassInfo.tableName = null;
 		}
-		log.info("tableName = " + tableName);
+		log.info("tableName = " + rowClassInfo.tableName);
 		String csvResultColumns = lowerCaseSql.substring(selectIndex + 7, fromIndex);
 		// strip parens and text inside them
 		while (true) {
@@ -551,19 +582,19 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		// yyy from users group by age"
 		// into "concat as xxx, count as yyy". Now it is safe to split on commas
 		// to get the column names.
-		resultColumns = csvResultColumns.split(",");
-		for (int i = 0; i < resultColumns.length; i++) {
-			int asIndex = resultColumns[i].indexOf(" as ");
+		rowClassInfo.resultColumns = csvResultColumns.split(",");
+		for (int i = 0; i < rowClassInfo.resultColumns.length; i++) {
+			int asIndex = rowClassInfo.resultColumns[i].indexOf(" as ");
 			if (asIndex != -1) {
-				resultColumns[i] = resultColumns[i].substring(asIndex + 4);
+				rowClassInfo.resultColumns[i] = rowClassInfo.resultColumns[i].substring(asIndex + 4);
 			}
-			resultColumns[i] = underscoreToCamel(resultColumns[i], false);
+			rowClassInfo.resultColumns[i] = underscoreToCamel(rowClassInfo.resultColumns[i], false);
 		}
 	}
 
 	/*
-	 * TODO remove?
-	 * Use this query method when ps.setXXX is used to set where-clause values.
+	 * TODO remove? Use this query method when ps.setXXX is used to set
+	 * where-clause values.
 	 */
 	public RowClass queryStatement(PreparedStatement stmt)
 			throws SQLException, InstantiationException, IllegalAccessException {
@@ -574,14 +605,16 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 	}
 
 	/**
-	 * TODO fix inconsistency: other query methods return single row for each call.
-	 * Use this query method for SQL with parameters.
+	 * TODO fix inconsistency: other query methods return single row for each
+	 * call. Use this query method for SQL with parameters.
+	 * 
 	 * @whereClause examples: "x = 1", "x = ?"
 	 * @whereValues values for question marks in whereClause
 	 * @return List of all RowClass objects produced by the query.
 	 */
-	public List<RowClass> query(String whereClause, Object... whereValues) throws SQLException, InstantiationException, IllegalAccessException {
-		if (! "where".equals(whereClause.trim().toLowerCase().split(" ")[0])) {
+	public List<RowClass> query(String whereClause, Object... whereValues)
+			throws SQLException, InstantiationException, IllegalAccessException {
+		if (!"where".equals(whereClause.trim().toLowerCase().split(" ")[0])) {
 			whereClause = "where " + whereClause;
 		}
 		String sql = getRowQuerySQL() + " " + whereClause;
@@ -630,11 +663,11 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 					sql = getRowQuerySQL();
 					if (sql == null) {
 						throw new IllegalArgumentException(
-								"SQL.allResults() requires either the query be passed, or the Row class must have a 'query' field.");
+								"SQL: requires either a PreparedStatement or a String query.");
 					}
 				}
-				getQueryColumnNames(sql);
-				filterFields();
+				//getQueryColumnNames(sql);
+				//filterFields();
 				ps = conn.prepareStatement(sql);
 			}
 			rs = ps.executeQuery();
@@ -653,8 +686,8 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		// RowClass row = (RowClass) rowClassObj.getClass().newInstance();
 		RowClass row = (RowClass) rowClass.newInstance();
 
-		for (Integer colIndex : columnToField.keySet()) {
-			Field field = columnToField.get(colIndex);
+		for (Integer colIndex : rowClassInfo.columnToField.keySet()) {
+			Field field = rowClassInfo.columnToField.get(colIndex);
 			if (field.getType() == String.class) {
 				field.set(row, rs.getString(colIndex));
 			} else if (field.getType() == Integer.class) {
@@ -663,7 +696,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 			// TODO handle DATE, etc.
 		}
 
-		rowNumField.set(row, ++rowCount);
+		rowClassInfo.rowNumField.set(row, ++rowCount);
 		row.setInDb(true);
 		return row;
 	}
@@ -688,17 +721,16 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		if (rows.size() == 0) {
 			throw new IllegalArgumentException("Cannot insert empty list of row objects.");
 		}
-		if (tableName == null) {
-			// getQueryColumnNames(rows.get(0).getQuery());
+		if (rowClassInfo == null) {
 			getQueryColumnNames(getRowQuerySQL());
 			filterFields();
 		}
 		StringBuilder query = new StringBuilder("insert into ");
-		query.append(tableName);
+		query.append(rowClassInfo.tableName);
 		query.append(" (");
 		String comma = "";
 		StringBuilder valuePlaceholders = new StringBuilder(") values (");
-		for (String columnName : resultColumns) {
+		for (String columnName : rowClassInfo.resultColumns) {
 			query.append(comma);
 			valuePlaceholders.append(comma);
 			comma = ",";
@@ -710,8 +742,8 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		log.info("Insert query = " + query);
 		try (PreparedStatement ps = conn.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS)) {
 			for (RowClass row : rows) {
-				for (Integer colIndex : columnToField.keySet()) {
-					Field field = columnToField.get(colIndex);
+				for (Integer colIndex : rowClassInfo.columnToField.keySet()) {
+					Field field = rowClassInfo.columnToField.get(colIndex);
 					Object value = field.get(row);
 					log.info("field name = " + field.getName() + ", value = " + value);
 					Version version = field.getAnnotation(Version.class);
@@ -756,7 +788,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 						// log.info("id="+ id);
 						// log.info("pkf.name="+primaryKeyField.getName());
 						RowClass row = rows.get(rowCount);
-						primaryKeyField.set(row, id);
+						rowClassInfo.primaryKeyField.set(row, id);
 						row.setInDb(true);
 					}
 				}
@@ -779,29 +811,28 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		if (row == null) {
 			throw new IllegalArgumentException("Cannot update null row object.");
 		}
-		if (tableName == null) {
-			// getQueryColumnNames(rows.get(0).getQuery());
+		if (rowClassInfo == null) {
 			getQueryColumnNames(getRowQuerySQL());
 			filterFields();
 		}
 		StringBuilder query = new StringBuilder("update ");
-		query.append(tableName);
+		query.append(rowClassInfo.tableName);
 		query.append(" set ");
 		String comma = "";
-		for (String columnName : resultColumns) {
+		for (String columnName : rowClassInfo.resultColumns) {
 			query.append(comma);
 			comma = ",";
 			query.append(camelToUnderscore(columnName));
 			query.append(" = ?");
 		}
 		query.append(" where ");
-		query.append(camelToUnderscore(primaryKeyField.getName()));
+		query.append(camelToUnderscore(rowClassInfo.primaryKeyField.getName()));
 		query.append(" = ?");
 		log.info("Update query = " + query);
 		try (PreparedStatement ps = conn.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS)) {
 			int colCount = 1;
-			for (Integer colIndex : columnToField.keySet()) {
-				Field field = columnToField.get(colIndex);
+			for (Integer colIndex : rowClassInfo.columnToField.keySet()) {
+				Field field = rowClassInfo.columnToField.get(colIndex);
 				log.info("ci=" + colIndex + ", field name = " + field.getName() + ", value = " + field.get(row));
 				Version version = field.getAnnotation(Version.class);
 				if (version != null && !version.dbGenerated()) {
@@ -820,7 +851,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 				colCount++;
 			}
 			log.info("cc=" + colCount);
-			ps.setObject(colCount, primaryKeyField.get(row));
+			ps.setObject(colCount, rowClassInfo.primaryKeyField.get(row));
 			if (1 != ps.executeUpdate()) {
 				throw new SQLException("Failed:  " + query.toString());
 			}
@@ -837,19 +868,18 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 		if (row == null) {
 			throw new IllegalArgumentException("Cannot delete null row object.");
 		}
-		if (tableName == null) {
-			// getQueryColumnNames(rows.get(0).getQuery());
+		if (rowClassInfo == null) {
 			getQueryColumnNames(getRowQuerySQL());
 			filterFields();
 		}
 		StringBuilder query = new StringBuilder("delete from ");
-		query.append(tableName);
+		query.append(rowClassInfo.tableName);
 		query.append(" where ");
-		query.append(primaryKeyUnderscoreName);
+		query.append(rowClassInfo.primaryKeyUnderscoreName);
 		query.append(" = ?");
 		log.info("Delete query = " + query);
 		try (PreparedStatement ps = conn.prepareStatement(query.toString(), Statement.RETURN_GENERATED_KEYS)) {
-			ps.setObject(1, primaryKeyField.get(row));
+			ps.setObject(1, rowClassInfo.primaryKeyField.get(row));
 			if (1 != ps.executeUpdate()) {
 				throw new SQLException("Failed:  " + query.toString());
 			}
@@ -861,36 +891,47 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 
 	private String getRowQuerySQL() {
 		if (rowQuerySQL != null) {
+			log.info("!!!!!!!! rowQuerySQL = " + rowQuerySQL);
 			return rowQuerySQL;
 		}
 
-		tableName = camelToUnderscore(rowClass.getSimpleName());
-
-		// Select select = rowClassObj.getClass().getAnnotation(Select.class);
-		Select select = rowClass.getAnnotation(Select.class);
-		/*
-		 * if (select == null) { throw new IllegalArgumentException(
-		 * "SQL.allResults() requires XxxRow class have a @Select(query=\"select ...\")"
-		 * ); }
-		 */
-		if (select == null) {
-			StringBuilder sb = new StringBuilder("select ");
-			String comma = "";
-			for (Field field : rowClass.getFields()) {
-				String fieldName = field.getName();
-				if (fieldName.equals("rowNum")) {
-					continue;
-				}
-				sb.append(comma);
-				comma = ", ";
-				sb.append(camelToUnderscore(fieldName));
-			}
-			sb.append(" from ");
-			sb.append(tableName);
-			rowQuerySQL = sb.toString();
-			log.info("Generated: " + rowQuerySQL);
+		if (rowClassInfo != null) {
+			return rowClassInfo.querySQL;
 		} else {
-			rowQuerySQL = select.query();
+			rowClassInfo = rowClassInfoCache.get(rowClass);
+			if (rowClassInfo == null) {
+				rowClassInfo = new RowClassInfo();
+				rowClassInfoCache.put(rowClass, rowClassInfo);
+
+				rowClassInfo.tableName = camelToUnderscore(rowClass.getSimpleName());
+
+				Select select = rowClass.getAnnotation(Select.class);
+				/*
+				 * if (select == null) { throw new IllegalArgumentException(
+				 * "SQL.allResults() requires XxxRow class have a @Select(query=\"select ...\")"
+				 * ); }
+				 */
+				if (select == null) {
+					StringBuilder sb = new StringBuilder("select ");
+					String comma = "";
+					for (Field field : rowClass.getFields()) {
+						String fieldName = field.getName();
+						if (fieldName.equals("rowNum")) {
+							continue;
+						}
+						sb.append(comma);
+						comma = ", ";
+						sb.append(camelToUnderscore(fieldName));
+					}
+					sb.append(" from ");
+					sb.append(rowClassInfo.tableName);
+					rowClassInfo.querySQL = sb.toString();
+					log.info("Generated: " + rowClassInfo.querySQL);
+				} else {
+					rowClassInfo.querySQL = select.query();
+				}
+			}
+			rowQuerySQL = rowClassInfo.querySQL;
 		}
 		return rowQuerySQL;
 	}

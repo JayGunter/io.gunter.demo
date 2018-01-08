@@ -6,7 +6,10 @@ package io.gunter.demo;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -41,7 +44,23 @@ public class Test2 {
 		empRow.firstName = "f1";
 		empRow.lastName = "l1";
 		empRow.save(getConn());
-		log.info("id=" + empRow.id + ", rowNum=" + empRow.rowNum + ", fromDb=" + empRow.inDb());
+		log.info(empRow.toString());
+		//System.exit(1);
+		
+		SQL<EmployeeRow> sql0 = SQL.query(EmployeeRow.class, getConn());
+		List<EmployeeRow> rows = new ArrayList<>();
+		for (String name : new String[]{"John","Mary"}) {
+			rows.add(new EmployeeRow().init(name));
+		}
+		/*
+		Stream.of(new String[]{"Joe","Sue"}).forEach(name -> {
+			EmployeeRow e = new EmployeeRow();
+			e.firstName = name;
+			rows.add(e);
+		});
+		*/
+		sql0.insert(rows);
+		Stream.of(rows).forEach(r -> log.info(r.toString()));
 
 		empRow.firstName = "uf1";
 		empRow.save(getConn());
@@ -57,6 +76,7 @@ public class Test2 {
 
 		int delId = empRow.id;
 		empRow.delete(getConn());
+		log.info("getById after delete");
 		empRow = EmployeeRow.getById(EmployeeRow.class, delId, getConn());
 		if (null == empRow) {
 			log.info("Deleted row id = " + delId);
