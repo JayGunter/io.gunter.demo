@@ -89,7 +89,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 
 	@Retention(RetentionPolicy.RUNTIME)
 	public @interface Select {
-		String query();
+		String value();
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)
@@ -928,7 +928,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 					rowClassInfo.querySQL = sb.toString();
 					log.info("Generated: " + rowClassInfo.querySQL);
 				} else {
-					rowClassInfo.querySQL = select.query();
+					rowClassInfo.querySQL = select.value();
 				}
 			}
 			rowQuerySQL = rowClassInfo.querySQL;

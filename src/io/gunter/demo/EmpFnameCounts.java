@@ -6,7 +6,7 @@ import static java.lang.System.out;
 
 import io.gunter.demo.SQL.Order;
 
-@Select(query = "select first_name as fname, count(*) as tally from employee where id > ? group by fname")
+@Select("select first_name as fname, count(*) as tally from employee where id > ? group by fname")
 public class EmpFnameCounts extends Row<EmpFnameCounts> {
 
 	@Order(value = 2)
