@@ -13,7 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public abstract class Row<RowClass extends Row<?>> {
 	public Integer rowNum;
-	private boolean dirty;
+	//private boolean dirty;
+	protected int origHashCode = -1;
 	private boolean inDb;
 
 	public boolean inDb() {
@@ -29,14 +30,18 @@ public abstract class Row<RowClass extends Row<?>> {
 	 * 
 	 * @return
 	 */
+	/*
 	public Row<RowClass> mod() {
 		dirty = true;
 		return this;
 	}
+	*/
 
+	/*
 	public boolean isMod() {
 		return dirty;
 	}
+	*/
 
 	// TODO would this be useful? It doesn't help static methods
 	// that don't receive an object/class to work with.
@@ -78,6 +83,7 @@ public abstract class Row<RowClass extends Row<?>> {
 		try (@SuppressWarnings("unchecked")
 		SQL<RowClass> sql = new SQL<RowClass>((RowClass) this, conn)) {
 			if (this.inDb) {
+				if (origHashCode != this.hashCode()) return;
 				sql.update();
 			} else {
 				sql.insert();
@@ -129,7 +135,7 @@ public abstract class Row<RowClass extends Row<?>> {
 	public int hashCode() {
 		final int prime = 31;
 		int result = 1;
-		result = prime * result + (dirty ? 1231 : 1237);
+		//result = prime * result + (dirty ? 1231 : 1237);
 		result = prime * result + (inDb ? 1231 : 1237);
 		result = prime * result + ((rowNum == null) ? 0 : rowNum.hashCode());
 		for (Field field : this.getClass().getFields()) {
@@ -155,8 +161,8 @@ public abstract class Row<RowClass extends Row<?>> {
 			return false;
 		@SuppressWarnings("unchecked")
 		Row<RowClass> other = (Row<RowClass>) obj;
-		if (dirty != other.dirty)
-			return false;
+		//if (dirty != other.dirty)
+			//return false;
 		if (inDb != other.inDb)
 			return false;
 		if (rowNum == null) {

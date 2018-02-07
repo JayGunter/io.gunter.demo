@@ -790,6 +790,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 						RowClass row = rows.get(rowCount);
 						rowClassInfo.primaryKeyField.set(row, id);
 						row.setInDb(true);
+						row.origHashCode = row.hashCode();
 					}
 				}
 				rowCount++;
@@ -855,6 +856,7 @@ public class SQL<RowClass extends Row<?>> implements AutoCloseable {
 			if (1 != ps.executeUpdate()) {
 				throw new SQLException("Failed:  " + query.toString());
 			}
+			row.origHashCode = row.hashCode();
 		} finally {
 			close();
 		}

@@ -79,6 +79,8 @@ public class Test {
 
 		// log.info("Tidy: Query, buffer all rows, and process...");
 
+		//runReflecting(1);
+		//System.exit(1);
 
 		if (true) {
 			SQL.run(UserRow.class, getConn()); // uses UserRow.action()
@@ -93,13 +95,12 @@ public class Test {
 		//SQL.query(UserRow.class, getConn()).where("name", "new1").stream();
 		//SQL.query(UserRow.class, getConn()).where("name=?", "new1").stream();
 
-		int maxRuns = 0;
+		int maxRuns = 1;
 
 		if (maxRuns > 0) {
 			runReflecting(maxRuns);
 			runStandard(maxRuns);
 		}
-			runReflecting(2);
 			
 		
 
@@ -114,7 +115,7 @@ public class Test {
 
 		UserRow row = new UserRow();
 		row.userName = "newB";
-		row.mod();
+		//row.mod();
 		row.password = "newB";
 		row.save(getConn());
 
@@ -146,7 +147,8 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email"))) {
-						"select email, password, user_name, age as age from user"))) {
+						//"select email, password, user_name, age as age from user"))) {
+						))) {
 					numRows++;
 				}
 			} catch (Exception e) {
@@ -170,7 +172,7 @@ public class Test {
 						// "select email, concat('aaa ', username) as name,
 						// sum(age) as age from user group by name, age,
 						// email");
-						"select user_name, password, email, age as age from user");
+						"select user_name, age as age, password, email from user");
 				ResultSet rs = preparedStatement.executeQuery();
 				while (rs.next()) {
 					// String userid = rs.getString("name");
